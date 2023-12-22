@@ -1,0 +1,35 @@
+[package]
+name = "walltaker-engine"
+version = "0.1.0"
+edition = "2021"
+authors = [ "zoomasochist" ]
+
+[dependencies]
+anyhow = "1.0.76"
+directories = "5.0.1"
+embed-resource = "2.4.0"
+futures-util = "0.3.29"
+reqwest = { version = "0.11.23", features = ["json"] }
+serde = { version = "1.0.193", features = ["derive"] }
+serde_json = { version = "1.0.108", features = ["raw_value"] }
+tokio = { version = "1.35.1", features = ["full"] }
+tokio-tungstenite = { version =  "0.21.0", features = [ "native-tls" ] }
+tray-item = { git = "https://github.com/olback/tray-item-rs" }
+vlc-rs = { git = "https://code.videolan.org/videolan/vlc-rs" }
+winrt-notification = "0.5.1"
+
+[dependencies.windows]
+version = "0.52.0"
+features = [
+    "Win32_System_Com",
+    "Win32_Graphics",
+    "Win32_UI_Controls",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_UI",
+    "Win32_Foundation",
+    "Win32"
+]
+
+[build-dependencies]
+embed-resource = "2.4.0"

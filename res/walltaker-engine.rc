@@ -1,0 +1,34 @@
+#include <Windows.h>
+
+#define IDC_STATIC -1
+#define IDD_MAIB   101
+
+#define IDC_WID    1000
+#define IDC_LIST   1002
+#define IDC_ADD    1003
+#define IDC_REMOVE 1005
+
+#define IDC_RADIO_TILE    1006
+#define IDC_RADIO_FILL    1007
+#define IDC_RADIO_CENTRE  1008
+#define IDC_RADIO_STRETCH 1009
+
+tray-icon ICON "walltaker-engine.ico"
+
+IDD_MAIN DIALOG DISCARDABLE  0, 0, 207, 156
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Walltaker Engine - Settings"
+FONT 8, "MS Sans Serif"
+BEGIN
+    EDITTEXT        IDC_WID,  7,  7, 120,  14, ES_NUMBER
+    LISTBOX         IDC_LIST, 7, 25, 138, 106, LBS_NOINTEGRALHEIGHT | LBS_SORT | WS_VSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "&Add",    IDC_ADD,    150, 30, 50, 14
+    PUSHBUTTON      "&Remove", IDC_REMOVE, 150, 47, 50, 14
+
+    GROUPBOX        "Fit mode", IDC_STATIC,        150,  70, 50, 60
+    AUTORADIOBUTTON "Tile",     IDC_RADIO_TILE,    154,  80, 40, 10, WS_GROUP
+    AUTORADIOBUTTON "Centre",   IDC_RADIO_CENTRE,  154,  92, 40, 10
+    AUTORADIOBUTTON "Fill",     IDC_RADIO_FILL     154, 104, 40, 10
+    AUTORADIOBUTTON "Stretch",  IDC_RADIO_STRETCH, 154, 116, 40, 10
+END
