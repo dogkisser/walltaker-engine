@@ -250,7 +250,11 @@ async fn spawn_settings(
 
         for item in added {
             let msg = walltaker::subscribe_message(*item).unwrap();
-            write.lock().await.send(tungstenite::Message::text(msg)).await.unwrap();
+            write.lock()
+                .await
+                .send(tungstenite::Message::text(msg))
+                .await
+                .unwrap();
         }
 
         new
