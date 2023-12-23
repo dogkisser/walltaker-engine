@@ -59,7 +59,11 @@ pub fn check_message(id: usize) -> anyhow::Result<String> {
     let data = Action { action: String::from("check"), };
     let data = serde_json::to_string(&data)?;
 
-    let msg = Outgoing::Check { data, identifier: inner, command: String::from("message"), };
+    let msg = Outgoing::Check {
+        data,
+        identifier: inner,
+        command: String::from("message")
+    };
 
     Ok(serde_json::to_string(&msg)?)
 }

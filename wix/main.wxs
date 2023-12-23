@@ -79,45 +79,135 @@
         <Property Id='DiskPrompt' Value='Walltaker Engine Installation'/>
 
         <Directory Id='TARGETDIR' Name='SourceDir'>
+
+            <Directory Id='DesktopFolder' Name='Desktop'>
+                <Component Id='ApplicationShortcutDesktop'>
+                    <Shortcut Id="ApplicationDesktopShortcut"
+                        Name='Walltaker Engine'
+                        Target='[APPLICATIONFOLDER]walltaker-engine.exe'
+                        WorkingDirectory="APPLICATIONFOLDER"/>
+                    <RemoveFolder Id="DesktopFolder" On="uninstall"/>
+                    <RegistryValue
+                        Root="HKCU"
+                        Key="Software\Zoomasochist\walltaker-engine"
+                        Name="installed"
+                        Type="integer"
+                        Value="1"
+                        KeyPath="yes"/>
+                </Component>
+            </Directory>
+
             <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
                 <Directory Id='APPLICATIONFOLDER' Name='Walltaker Engine'>   
                     
-                    <Component Id='License' Guid='*'>
-                        <File Id='LicenseFile' DiskId='1' Source='License' KeyPath='yes'/>
+                    <Component Id='license'>
+                        <File Id='LicenseFile' Source='License'/>
                     </Component>
 
-                    <Directory Id='Bin' Name='bin'>
+                    <Component Id='binary0'>
+                        <File Id='exe0' Source='$(var.CargoTargetBinDir)/walltaker-engine.exe'/>
+                    </Component>
 
-                        <Component Id='dll1' Guid='*'>
-                            <File Id='dll1' Source='libvlc.dll' KeyPath='yes'/>
+                    <Component Id='libvlc'>
+                        <File Id='libvlc' Source='vendor/libvlc.dll'/>
+                    </Component>
+
+                    <Component Id='libvlccore'>
+                        <File Id='libvlccore' Source='vendor/libvlccore.dll'/>
+                    </Component>
+
+                    <Directory Id='plugins' Name='plugins'>
+                        <Component Id='libavcodec_plugin'>
+                            <File Id='libavcodec_plugin' Source='plugins/libavcodec_plugin.dll'/>
                         </Component>
 
-                        <Component Id='dll0' Guid='*'>
-                            <File Id='dll0' Source='libvlccore.dll' KeyPath='yes'/>
+                        <Component Id='libdirect3d11_plugin'>
+                            <File Id='libdirect3d11_plugin' Source='plugins/libdirect3d11_plugin.dll'/>
                         </Component>
 
-                        <Component Id='binary0' Guid='*'>
-                            <File Id='exe0' Source='$(var.CargoTargetBinDir)\walltaker-engine.exe' KeyPath='yes'/>
+                        <Component Id='libdirect3d9_filters_plugin'>
+                            <File Id='libdirect3d9_filters_plugin' Source='plugins/libdirect3d9_filters_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libdirectsound_plugin'>
+                            <File Id='libdirectsound_plugin' Source='plugins/libdirectsound_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libdrawable_plugin'>
+                            <File Id='libdrawable_plugin' Source='plugins/libdrawable_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libfilesystem_plugin'>
+                            <File Id='libfilesystem_plugin' Source='plugins/libfilesystem_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libfloat_mixer_plugin'>
+                            <File Id='libfloat_mixer_plugin' Source='plugins/libfloat_mixer_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libinteger_mixer_plugin'>
+                            <File Id='libinteger_mixer_plugin' Source='plugins/libinteger_mixer_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libmux_ogg_plugin'>
+                            <File Id='libmux_ogg_plugin' Source='plugins/libmux_ogg_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libopus_plugin'>
+                            <File Id='libopus_plugin' Source='plugins/libopus_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='libvorbis_plugin'>
+                            <File Id='libvorbis_plugin' Source='plugins/libvorbis_plugin.dll'/>
+                        </Component>
+
+                        <Component Id='plugins.dat'>
+                            <File Id='plugins.dat' Source='plugins/plugins.dat' KeyPath='yes'/>
                         </Component>
                     </Directory>
+
                 </Directory>
             </Directory>
         </Directory>
 
         <Feature
-            Id='Binaries'
-            Title='Application'
-            Description='Installs all binaries and the license.'
+            Id='BaseApplication'
+            Title='Walltaker Engine'
+            Description='Install Walltaker Engine'
             Level='1'
             ConfigurableDirectory='APPLICATIONFOLDER'
             AllowAdvertise='no'
             Display='expand'
             Absent='disallow'>
-            
-            <ComponentRef Id='License'/>
+
+            <ComponentRef Id='license'/>
             <ComponentRef Id='binary0'/>
-            <ComponentRef Id='dll0'/>
-            <ComponentRef Id='dll1'/>
+            <ComponentRef Id='libvlc'/>
+            <ComponentRef Id='libvlccore'/>
+
+            <ComponentRef Id='libavcodec_plugin'/>
+            <ComponentRef Id='libdirect3d11_plugin'/>
+            <ComponentRef Id='libdirect3d9_filters_plugin'/>
+            <ComponentRef Id='libdirectsound_plugin'/>
+            <ComponentRef Id='libdrawable_plugin'/>
+            <ComponentRef Id='libfilesystem_plugin'/>
+            <ComponentRef Id='libfloat_mixer_plugin'/>
+            <ComponentRef Id='libinteger_mixer_plugin'/>
+            <ComponentRef Id='libmux_ogg_plugin'/>
+            <ComponentRef Id='libopus_plugin'/>
+            <ComponentRef Id='libvorbis_plugin'/>
+            <ComponentRef Id='plugins.dat'/>
+
+            <Feature
+                Id='DesktopShortcut'
+                Title='Desktop Shortcut'
+                Description='Add a Walltaker Engine shortcut to your desktop'
+                Level='1'
+                Display='expand'>
+
+                <ComponentRef Id='ApplicationShortcutDesktop'/>
+
+            </Feature>
 
         </Feature>
 
@@ -135,8 +225,6 @@
             <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
 
         </UI>
-        
-        <WixVariable Id='WixUIDialogBmp' Value='res\walltaker-engine.png'/>
 
     </Product>
 

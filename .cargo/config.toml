@@ -1,0 +1,2 @@
+[env]
+VLC_LIB_DIR = { value = 'vendor/', relative = true, force = true }

@@ -1,11 +1,17 @@
 mod video;
 use video::Video;
 use windows::{
+    core::{PCWSTR, HSTRING},
     Win32::{
-        System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL},
-        UI::Shell::{IDesktopWallpaper, DesktopWallpaper, DESKTOP_WALLPAPER_POSITION}
+        System::Com::{
+            COINIT_MULTITHREADED, CLSCTX_ALL,
+            CoInitializeEx, CoCreateInstance
+        },
+        UI::Shell::{
+            DESKTOP_WALLPAPER_POSITION,
+            IDesktopWallpaper, DesktopWallpaper
+        },
     },
-    core::{PCWSTR, HSTRING}
 };
 
 pub struct Wallpaper {

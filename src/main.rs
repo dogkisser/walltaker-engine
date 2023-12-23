@@ -1,21 +1,40 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![warn(clippy::pedantic, clippy::style)]
-#![allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)] // Clippy clearly hasn't met WinAPI
+// Clippy clearly hasn't met WinAPI
+#![allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::too_many_lines,
+)]
 use std::sync::Arc;
-use tokio::sync::{RwLock, Mutex};
-use tokio_tungstenite::tungstenite;
+use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
+use tokio_tungstenite::{
+    tungstenite::{self, Message},
+    WebSocketStream, MaybeTlsStream,
+};
+use winrt_notification::{Toast, IconCrop};
 use tray_item::{IconSource, TrayItem};
 use anyhow::anyhow;
-use futures_util::{StreamExt, SinkExt};
+use futures_util::{StreamExt, SinkExt, stream::SplitSink};
 use windows::{
     core::{s, w, PCSTR, HSTRING},
     Win32::{
         Foundation::{WPARAM, LPARAM, HWND, BOOL, HINSTANCE},
-        UI::{WindowsAndMessaging::{
-            SMTO_NORMAL, MB_OK, MB_ICONERROR, WM_INITDIALOG, WM_COMMAND, LB_ADDSTRING, LB_DELETESTRING, LB_GETCURSEL, LB_ERR, WM_CLOSE,
-            FindWindowA, SendMessageTimeoutA, EnumWindows, FindWindowExA,
-            MessageBoxW, DialogBoxParamW, GetDlgItemInt, SetDlgItemTextA, SendDlgItemMessageA, SendMessageA, GetDlgItem, EndDialog, LB_GETCOUNT, LB_GETTEXTLEN, LB_GETTEXT, BM_SETCHECK,
-        }, Controls::{IsDlgButtonChecked, BST_CHECKED}, Shell::{DWPOS_CENTER, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FILL, DESKTOP_WALLPAPER_POSITION}},
+        UI::{
+            WindowsAndMessaging::{
+                LB_GETCOUNT, LB_GETTEXTLEN, LB_GETTEXT, BM_SETCHECK,
+                SMTO_NORMAL, MB_OK, MB_ICONERROR, WM_INITDIALOG, WM_COMMAND,
+                LB_ADDSTRING, LB_DELETESTRING, LB_GETCURSEL, LB_ERR, WM_CLOSE,
+                FindWindowA, SendMessageTimeoutA, EnumWindows, FindWindowExA,
+                MessageBoxW, DialogBoxParamW, GetDlgItemInt, SetDlgItemTextA,
+                SendDlgItemMessageA, SendMessageA, GetDlgItem, EndDialog,
+            },
+            Controls::{IsDlgButtonChecked, BST_CHECKED},
+            Shell::{
+                DWPOS_CENTER, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FILL,
+                DESKTOP_WALLPAPER_POSITION
+            }
+        },
     },
 };
 
@@ -32,7 +51,11 @@ enum TrayMessage {
 async fn main() {
     match app().await {
         Ok(()) => { },
-        Err(e) => popup(&e.chain().map(ToString::to_string).collect::<Vec<String>>().join("; ")),
+        Err(e) => popup(&e
+            .chain()
+            .map(ToString::to_string)
+            .collect::<Vec<String>>()
+            .join("; ")),
     }
 }
 
@@ -40,18 +63,22 @@ async fn app() -> anyhow::Result<()> {
     let settings = Arc::new(RwLock::new(settings::Settings::load_or_new()));
     println!("Loaded settings: {settings:?}");
 
-    let bg_hwnd = unsafe { find_hwnd()? }.ok_or_else(|| anyhow!("Couldn't find workerW HWND."))?;
+    let bg_hwnd = unsafe { find_hwnd()? }
+        .ok_or_else(|| anyhow!("Couldn't find workerW HWND."))?;
     println!("WorkerW HWND: 0x{:X}", bg_hwnd.0);
-    let mut wallpaper = wallpaper::Wallpaper::new((bg_hwnd.0 as *mut usize).cast())?;
+    let mut wallpaper = wallpaper::Wallpaper::new((bg_hwnd.0 as *mut usize)
+        .cast())?;
 
     /* Set up websocket */
-    let (ws_stream, _) = tokio_tungstenite::connect_async("wss://walltaker.joi.how/cable").await?;
+    let (ws_stream, _) = tokio_tungstenite::connect_async(
+        "wss://walltaker.joi.how/cable").await?;
     let (write, mut read) = ws_stream.split();
     let write = Arc::new(Mutex::new(write));
 
     /* Set up system tray */
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let mut tray = TrayItem::new("Walltaker Engine", IconSource::Resource("tray-icon"))?;
+    let mut tray = TrayItem::new("Walltaker Engine",
+                        IconSource::Resource("tray-icon"))?;
 
     let tx_ = tx.clone();
 
@@ -87,15 +114,22 @@ async fn app() -> anyhow::Result<()> {
                     let subscribed = &settings.read().await.subscribed;
                     for link in subscribed {
                         let msg = walltaker::subscribe_message(*link)?;
-                        write.lock().await.send(tungstenite::Message::text(msg)).await?;
+                        write.lock()
+                            .await
+                            .send(tungstenite::Message::text(msg))
+                            .await?;
                         println!("Requested subscription to {link}");
                     }
 
-                    /* If at least one ID is already set in the config file, immediately request the latest set wallpaper
+                    /* If at least one ID is already set in the config file,
+                     * immediately request the latest set wallpaper
                      * so we can change it immediately to start. */
                     if let Some(id) = settings.read().await.subscribed.last() {
                         let msg = walltaker::check_message(*id)?;
-                        write.lock().await.send(tungstenite::Message::text(msg)).await?;
+                        write.lock()
+                            .await
+                            .send(tungstenite::Message::text(msg))
+                            .await?;
                     }
                 },
 
@@ -104,11 +138,17 @@ async fn app() -> anyhow::Result<()> {
                     wallpaper.set(&out_path, settings.read().await.method)?;
 
                     // A toast!
-                    let set_by = message.set_by.unwrap_or_else(|| String::from("Anonymous"));
-                    winrt_notification::Toast::new(winrt_notification::Toast::POWERSHELL_APP_ID)
-                        .icon(std::path::Path::new("./res/walltaker-engine.png"), winrt_notification::IconCrop::Circular, "Walltaker Engine logo")
+                    let set_by = message.set_by
+                        .unwrap_or_else(|| String::from("Anonymous"));
+                    
+                    Toast::new(Toast::POWERSHELL_APP_ID)
+                        .icon(std::path::Path::new(&out_path),
+                              IconCrop::Circular,
+                              "Walltaker Engine Icon")
                         .title("Walltaker Engine")
-                        .text1(&format!("{} changed your wallpaper via link {}! ❤️", set_by, message.id))
+                        .text1(&format!(
+                            "{} changed your wallpaper via link {}! ❤️",
+                            set_by, message.id))
                         .show()
                         .unwrap();
                 }
@@ -123,47 +163,60 @@ async fn app() -> anyhow::Result<()> {
                     std::process::exit(0);
                 },
 
-                TrayMessage::Settings => unsafe {
+                TrayMessage::Settings => {
                     let c_settings = Arc::clone(&settings);
                     let write = Arc::clone(&write);
 
-                    tokio::spawn(async move {
-                        let new = {
-                            let settings_reader = c_settings.read().await;
-                            let new = {
-                                let t: settings::Settings = (*settings_reader).clone();
-                                let ptr = std::ptr::addr_of!(t) as isize;
-                                DialogBoxParamW(HINSTANCE(0), w!("IDD_MAIN"), HWND(0), Some(subscriptions_proc), LPARAM(ptr))
-                            };
-
-                            let new: &settings::Settings = &*(new as *const _);
-
-                            // This is theoretically really, really slow but these vecs will only ever contain like, 5 elements tops.
-                            // So it doesn't really matter.
-                            let added = new.subscribed.iter().filter(|i| !settings_reader.subscribed.contains(i));
-                            let removed = settings_reader.subscribed.iter().filter(|i| !new.subscribed.contains(i));
-
-                            // TODO: ability to unsubscribe
-                            _ = removed;
-
-                            for item in added {
-                                let msg = walltaker::subscribe_message(*item).unwrap();
-                                write.lock().await.send(tungstenite::Message::text(msg)).await.unwrap();
-                            }
-
-                            new
-                        };
-
-                        let mut settings = c_settings.write().await;
-                        *settings = new.clone();
-                        settings.save().unwrap();
-
-                        println!("Config saved");
-                    });
+                    tokio::spawn(spawn_settings(c_settings, write));
                 },
             }
         }
     }
+}
+
+async fn spawn_settings(
+    settings: Arc<RwLock<settings::Settings>>,
+    write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
+)
+{
+    let new = {
+        let settings_reader = settings.read().await;
+        let new = {
+            let t: settings::Settings = (*settings_reader).clone();
+            let ptr = std::ptr::addr_of!(t) as isize;
+            unsafe {
+                DialogBoxParamW(
+                    HINSTANCE(0),
+                    w!("IDD_MAIN"),
+                    HWND(0),
+                    Some(subscriptions_proc),
+                    LPARAM(ptr))
+            }
+        };
+
+        let new: &settings::Settings = unsafe { &*(new as *const _) };
+
+        // This is theoretically really, really slow but these vecs will only
+        // ever contain like, 5 elements tops. So it doesn't really matter.
+        let added = new.subscribed.iter().filter(|i| !settings_reader.subscribed.contains(i));
+        let removed = settings_reader.subscribed.iter().filter(|i| !new.subscribed.contains(i));
+
+        // TODO: ability to unsubscribe
+        _ = removed;
+
+        for item in added {
+            let msg = walltaker::subscribe_message(*item).unwrap();
+            write.lock().await.send(tungstenite::Message::text(msg)).await.unwrap();
+        }
+
+        new
+    };
+
+    let mut settings = settings.write().await;
+    *settings = new.clone();
+    settings.save().unwrap();
+
+    println!("Config saved");
 }
 
 async fn save_file(url: String) -> anyhow::Result<String> {
