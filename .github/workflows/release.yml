@@ -21,9 +21,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "walltaker-engine-build-cache"
-      
-      - name: install build deps
-        run: choco install -y pkgconfiglite
 
       - name: install cargo deps
         run: cargo install cargo-wix
