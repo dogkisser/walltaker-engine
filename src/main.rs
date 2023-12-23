@@ -140,6 +140,7 @@ async fn app() -> anyhow::Result<()> {
                      * so we can change it immediately to start. */
                     if let Some(id) = settings.read().await.subscribed.last() {
                         let msg = walltaker::check_message(*id)?;
+                        println!("Immediately setting wallpaper with ID {id}");
                         write.lock()
                             .await
                             .send(tungstenite::Message::text(msg))

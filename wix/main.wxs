@@ -118,51 +118,51 @@
 
                     <Directory Id='plugins' Name='plugins'>
                         <Component Id='libavcodec_plugin'>
-                            <File Id='libavcodec_plugin' Source='plugins/libavcodec_plugin.dll'/>
+                            <File Id='libavcodec_plugin' Source='vendor/plugins/libavcodec_plugin.dll'/>
                         </Component>
 
                         <Component Id='libdirect3d11_plugin'>
-                            <File Id='libdirect3d11_plugin' Source='plugins/libdirect3d11_plugin.dll'/>
+                            <File Id='libdirect3d11_plugin' Source='vendor/plugins/libdirect3d11_plugin.dll'/>
                         </Component>
 
                         <Component Id='libdirect3d9_filters_plugin'>
-                            <File Id='libdirect3d9_filters_plugin' Source='plugins/libdirect3d9_filters_plugin.dll'/>
+                            <File Id='libdirect3d9_filters_plugin' Source='vendor/plugins/libdirect3d9_filters_plugin.dll'/>
                         </Component>
 
                         <Component Id='libdirectsound_plugin'>
-                            <File Id='libdirectsound_plugin' Source='plugins/libdirectsound_plugin.dll'/>
+                            <File Id='libdirectsound_plugin' Source='vendor/plugins/libdirectsound_plugin.dll'/>
                         </Component>
 
                         <Component Id='libdrawable_plugin'>
-                            <File Id='libdrawable_plugin' Source='plugins/libdrawable_plugin.dll'/>
+                            <File Id='libdrawable_plugin' Source='vendor/plugins/libdrawable_plugin.dll'/>
                         </Component>
 
                         <Component Id='libfilesystem_plugin'>
-                            <File Id='libfilesystem_plugin' Source='plugins/libfilesystem_plugin.dll'/>
+                            <File Id='libfilesystem_plugin' Source='vendor/plugins/libfilesystem_plugin.dll'/>
                         </Component>
 
                         <Component Id='libfloat_mixer_plugin'>
-                            <File Id='libfloat_mixer_plugin' Source='plugins/libfloat_mixer_plugin.dll'/>
+                            <File Id='libfloat_mixer_plugin' Source='vendor/plugins/libfloat_mixer_plugin.dll'/>
                         </Component>
 
                         <Component Id='libinteger_mixer_plugin'>
-                            <File Id='libinteger_mixer_plugin' Source='plugins/libinteger_mixer_plugin.dll'/>
+                            <File Id='libinteger_mixer_plugin' Source='vendor/plugins/libinteger_mixer_plugin.dll'/>
                         </Component>
 
                         <Component Id='libmux_ogg_plugin'>
-                            <File Id='libmux_ogg_plugin' Source='plugins/libmux_ogg_plugin.dll'/>
+                            <File Id='libmux_ogg_plugin' Source='vendor/plugins/libmux_ogg_plugin.dll'/>
                         </Component>
 
                         <Component Id='libopus_plugin'>
-                            <File Id='libopus_plugin' Source='plugins/libopus_plugin.dll'/>
+                            <File Id='libopus_plugin' Source='vendor/plugins/libopus_plugin.dll'/>
                         </Component>
 
                         <Component Id='libvorbis_plugin'>
-                            <File Id='libvorbis_plugin' Source='plugins/libvorbis_plugin.dll'/>
+                            <File Id='libvorbis_plugin' Source='vendor/plugins/libvorbis_plugin.dll'/>
                         </Component>
 
                         <Component Id='plugins.dat'>
-                            <File Id='plugins.dat' Source='plugins/plugins.dat' KeyPath='yes'/>
+                            <File Id='plugins.dat' Source='vendor/plugins/plugins.dat' KeyPath='yes'/>
                         </Component>
                     </Directory>
 
