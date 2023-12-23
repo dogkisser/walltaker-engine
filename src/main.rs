@@ -48,7 +48,13 @@ enum TrayMessage {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
+    let instance = single_instance::SingleInstance::new("walltaker-engine")?;
+    if !instance.is_single() {
+        popup("Walltaker Engine is already running.");
+        return Ok(());
+    }
+
     match app().await {
         Ok(()) => { },
         Err(e) => popup(&e
@@ -57,6 +63,8 @@ async fn main() {
             .collect::<Vec<String>>()
             .join("; ")),
     }
+
+    Ok(())
 }
 
 async fn app() -> anyhow::Result<()> {
@@ -89,6 +97,12 @@ async fn app() -> anyhow::Result<()> {
     tray.add_menu_item("Quit", move || {
         tx.send(TrayMessage::Quit).unwrap();
     })?;
+
+    Toast::new(Toast::POWERSHELL_APP_ID)
+        .title("Walltaker Engine")
+        .text1("Walltaker Engine is now running. You can find it in the system tray.")
+        .show()
+        .unwrap();
 
     /* Event loop */
     loop {
