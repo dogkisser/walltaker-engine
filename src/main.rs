@@ -240,8 +240,10 @@ async fn spawn_settings(
 
         // This is theoretically really, really slow but these vecs will only
         // ever contain like, 5 elements tops. So it doesn't really matter.
-        let added = new.subscribed.iter().filter(|i| !settings_reader.subscribed.contains(i));
-        let removed = settings_reader.subscribed.iter().filter(|i| !new.subscribed.contains(i));
+        let added = new.subscribed.iter()
+            .filter(|i| !settings_reader.subscribed.contains(i));
+        let removed = settings_reader.subscribed.iter()
+            .filter(|i| !new.subscribed.contains(i));
 
         // TODO: ability to unsubscribe
         _ = removed;
@@ -276,14 +278,26 @@ async fn save_file(url: String) -> anyhow::Result<String> {
     Ok(out_path.to_string_lossy().to_string())
 }
 
-unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: WPARAM, settings: LPARAM) -> isize {
-    match (message, (w_param.0 >> 16 & 0xffff) as u32, (w_param.0 & 0xFFFF)) /* HIWORD, LOWORD */ { 
+unsafe extern "system" fn subscriptions_proc(
+    hwnd: HWND,
+    message: u32,
+    w_param: WPARAM,
+    settings: LPARAM
+) -> isize
+{
+    /* message, hiword, loword */
+    match (message, (w_param.0 >> 16 & 0xffff) as u32, (w_param.0 & 0xFFFF)) { 
         (WM_INITDIALOG, _, _) => {
             let settings: &settings::Settings = &*(settings.0 as *const _);
 
             for i in &settings.subscribed {
                 let s = std::ffi::CString::new(i.to_string()).unwrap();
-                SendDlgItemMessageA(hwnd, 1002, LB_ADDSTRING, WPARAM(0), LPARAM(s.as_ptr() as isize));  
+                SendDlgItemMessageA(
+                    hwnd,
+                    1002,
+                    LB_ADDSTRING,
+                    WPARAM(0),
+                    LPARAM(s.as_ptr() as isize));  
             }
 
             let target = match DESKTOP_WALLPAPER_POSITION(settings.method) {
@@ -368,24 +382,40 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
         (WM_COMMAND, _, 1010) => { },
 
         (WM_CLOSE, _, _) => {
-            let item_count = SendDlgItemMessageA(hwnd, 1002, LB_GETCOUNT, WPARAM(0), LPARAM(0)).0 as usize;
             let mut out: Box<settings::Settings> = Box::default();
+            let item_count = SendDlgItemMessageA(
+                hwnd,
+                1002,
+                LB_GETCOUNT,
+                WPARAM(0),
+                LPARAM(0)).0 as usize;
             
             // Terrible, horrible, not safe, very dangerous code
             for i in 0..item_count {
-                let len = SendDlgItemMessageA(hwnd, 1002, LB_GETTEXTLEN, WPARAM(i), LPARAM(0)).0 as usize;
+                let len = SendDlgItemMessageA(
+                    hwnd,
+                    1002,
+                    LB_GETTEXTLEN,
+                    WPARAM(i),
+                    LPARAM(0)).0 as usize;
                 let mut buf: Vec<u8> = Vec::with_capacity(len + 1);
                 let ptr = buf.as_mut_ptr() as isize;
                 
-                let read_in = SendDlgItemMessageA(hwnd, 1002, LB_GETTEXT, WPARAM(i), LPARAM(ptr)).0 as usize;
+                let read_in = SendDlgItemMessageA(
+                    hwnd,
+                    1002,
+                    LB_GETTEXT,
+                    WPARAM(i),
+                    LPARAM(ptr)).0 as usize;
                 buf.set_len(read_in);
                 let num = std::str::from_utf8(&buf).unwrap().parse().unwrap();
 
                 out.subscribed.push(num);
             }
 
-            for (button_id, value) in [1006      , 1007      , 1008     , 1009         ].iter().zip(
-                                      [DWPOS_TILE, DWPOS_FILL, DWPOS_FIT, DWPOS_STRETCH])
+            for (button_id, value) in [1006 , 1007 , 1008 , 1009 ].iter().zip(
+                                      [DWPOS_TILE, DWPOS_FILL,
+                                       DWPOS_FIT, DWPOS_STRETCH])
             {
                 if IsDlgButtonChecked(hwnd, *button_id) == 1 {
                     out.method = value.0;
@@ -419,8 +449,15 @@ unsafe fn find_hwnd() -> anyhow::Result<Option<HWND>> {
     let progman = FindWindowA(s!("Progman"), PCSTR::null());
     
     // The ability to send a window 0x052C is undocumented.
-    SendMessageTimeoutA(progman, 0x052C, WPARAM(0), LPARAM(0), SMTO_NORMAL, 1000, None);
-
+    SendMessageTimeoutA(
+        progman,
+        0x052C,
+        WPARAM(0),
+        LPARAM(0),
+        SMTO_NORMAL,
+        1000,
+        None);
+    
     let mut hwnd = HWND(0);
     EnumWindows(Some(enum_proc), LPARAM(std::ptr::addr_of_mut!(hwnd) as isize))?;
 
@@ -431,11 +468,13 @@ unsafe fn find_hwnd() -> anyhow::Result<Option<HWND>> {
 }
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, out: LPARAM) -> BOOL {
-    let wind = FindWindowExA(hwnd, HWND(0), s!("SHELLDLL_DefView"), PCSTR::null());
+    let wind = FindWindowExA(hwnd, HWND(0), s!("SHELLDLL_DefView"),
+        PCSTR::null());
 
     if wind.0 != 0 {
         let out: &mut isize = &mut *(out.0 as *mut isize);
-        let target = FindWindowExA(HWND(0), hwnd, s!("WorkerW"), PCSTR::null()).0;
+        let target = FindWindowExA(HWND(0), hwnd, s!("WorkerW"),
+            PCSTR::null()).0;
 
         *out = target;
     }
