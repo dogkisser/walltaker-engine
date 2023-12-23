@@ -145,6 +145,8 @@ async fn app() -> anyhow::Result<()> {
                      * so we can change it immediately to start. */
                     if let Some(id) = settings.read().await.subscribed.last() {
                         let msg = walltaker::check_message(*id)?;
+
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         println!("Immediately setting wallpaper with ID {id}");
                         write.lock()
                             .await
@@ -191,6 +193,7 @@ async fn app() -> anyhow::Result<()> {
                     if let Some(id) = id {
                         let msg = walltaker::check_message(*id)?;
                     
+                        println!("Refreshing ID {id}");
                         write.lock()
                             .await
                             .send(tungstenite::Message::text(&msg))
