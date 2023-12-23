@@ -28,11 +28,11 @@ use windows::{
                 LB_ADDSTRING, LB_DELETESTRING, LB_GETCURSEL, LB_ERR, WM_CLOSE,
                 FindWindowA, SendMessageTimeoutA, EnumWindows, FindWindowExA,
                 MessageBoxW, DialogBoxParamW, GetDlgItemInt, SetDlgItemTextA,
-                SendDlgItemMessageA, SendMessageA, GetDlgItem, EndDialog,
+                SendDlgItemMessageA, EndDialog,
             },
-            Controls::{IsDlgButtonChecked, BST_CHECKED},
+            Controls::{IsDlgButtonChecked, BST_CHECKED, EM_SETCUEBANNER},
             Shell::{
-                DWPOS_CENTER, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FILL,
+                DWPOS_FIT, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FILL,
                 DESKTOP_WALLPAPER_POSITION
             }
         },
@@ -103,11 +103,13 @@ async fn app() -> anyhow::Result<()> {
         tx.send(TrayMessage::Quit).unwrap();
     })?;
 
-    Toast::new(Toast::POWERSHELL_APP_ID)
-        .title("Walltaker Engine")
-        .text1("Walltaker Engine is now running. You can find it in the system tray.")
-        .show()
-        .unwrap();
+    if settings.read().await.notifications {
+        Toast::new(Toast::POWERSHELL_APP_ID)
+            .title("Walltaker Engine")
+            .text1("Walltaker Engine is now running. You can find it in the system tray.")
+            .show()
+            .unwrap();
+    }
 
     /* Event loop */
     loop {
@@ -163,16 +165,18 @@ async fn app() -> anyhow::Result<()> {
                     let set_by = message.set_by
                         .unwrap_or_else(|| String::from("Anonymous"));
                     
-                    Toast::new(Toast::POWERSHELL_APP_ID)
-                        .icon(std::path::Path::new(&out_path),
-                              IconCrop::Circular,
-                              "Walltaker Engine Icon")
-                        .title("Walltaker Engine")
-                        .text1(&format!(
-                            "{} changed your wallpaper via link {}! ❤️",
-                            set_by, message.id))
-                        .show()
-                        .unwrap();
+                    if settings.read().await.notifications {
+                        Toast::new(Toast::POWERSHELL_APP_ID)
+                            .icon(std::path::Path::new(&out_path),
+                                IconCrop::Circular,
+                                "Walltaker Engine Icon")
+                            .title("Walltaker Engine")
+                            .text1(&format!(
+                                "{} changed your wallpaper via link {}! ❤️",
+                                set_by, message.id))
+                            .show()
+                            .unwrap();
+                    }
                 }
             }
         }
@@ -285,12 +289,30 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
             let target = match DESKTOP_WALLPAPER_POSITION(settings.method) {
                 DWPOS_TILE    => 1006,
                 DWPOS_FILL    => 1007,
-                DWPOS_CENTER  => 1008,
+                DWPOS_FIT     => 1008,
                 DWPOS_STRETCH => 1009,
                 _ => panic!("invalid settings.method"),
             };
+            SendDlgItemMessageA(hwnd,
+                target,
+                BM_SETCHECK,
+                WPARAM(BST_CHECKED.0 as usize),
+                LPARAM(0));
 
-            SendDlgItemMessageA(hwnd, target, BM_SETCHECK, WPARAM(BST_CHECKED.0 as usize), LPARAM(0));
+            let placeholder = w!("Walltaker ID");
+            SendDlgItemMessageA(hwnd,
+                1000,
+                EM_SETCUEBANNER,
+                WPARAM(1),
+                LPARAM(placeholder.as_ptr() as isize));
+
+            if settings.notifications {
+                SendDlgItemMessageA(hwnd,
+                    1010,
+                    BM_SETCHECK,
+                    WPARAM(BST_CHECKED.0 as usize),
+                    LPARAM(0));
+            }
         },
 
         /* IDC_ADD */
@@ -299,7 +321,11 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
 
             if id != 0 {
                 let s = std::ffi::CString::new(id.to_string()).unwrap();
-                SendDlgItemMessageA(hwnd, 1002, LB_ADDSTRING, WPARAM(0), LPARAM(s.as_ptr() as isize));
+                SendDlgItemMessageA(hwnd,
+                    1002,
+                    LB_ADDSTRING,
+                    WPARAM(0),
+                    LPARAM(s.as_ptr() as isize));
             }
 
             let _ = SetDlgItemTextA(hwnd, 1000, s!(""));
@@ -307,14 +333,22 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
 
         /* IDC_REMOVE */
         (WM_COMMAND, _, 1005) => {
-            let dlg = GetDlgItem(hwnd, 1002);
-            let selected = SendMessageA(dlg, LB_GETCURSEL, WPARAM(0), LPARAM(0)).0;
+            let selected = SendDlgItemMessageA(hwnd,
+                1002,
+                LB_GETCURSEL,
+                WPARAM(0),
+                LPARAM(0)).0;
+
             // Nothing selected
             if selected == LB_ERR as isize {
                 return 1;
             }
 
-            SendMessageA(dlg, LB_DELETESTRING, WPARAM(selected as usize), LPARAM(0));
+            SendDlgItemMessageA(hwnd,
+                1002,
+                LB_DELETESTRING,
+                WPARAM(selected as usize),
+                LPARAM(0));
         },
 
         /* IDC_RADIO_* */
@@ -322,13 +356,16 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
             let method = match x.2 {
                 1006 => DWPOS_TILE,
                 1007 => DWPOS_FILL,
-                1008 => DWPOS_CENTER,
+                1008 => DWPOS_FIT,
                 1009 => DWPOS_STRETCH,
                 _ => unreachable!(),
             };
 
             let _ = wallpaper::Wallpaper::set_method(method.0);
         },
+
+        /* IDC_NOTIFICATIONS */
+        (WM_COMMAND, _, 1010) => { },
 
         (WM_CLOSE, _, _) => {
             let item_count = SendDlgItemMessageA(hwnd, 1002, LB_GETCOUNT, WPARAM(0), LPARAM(0)).0 as usize;
@@ -347,13 +384,15 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
                 out.subscribed.push(num);
             }
 
-            for (button_id, value) in [1006      , 1007      , 1008        , 1009         ].iter().zip(
-                                      [DWPOS_TILE, DWPOS_FILL, DWPOS_CENTER, DWPOS_STRETCH])
+            for (button_id, value) in [1006      , 1007      , 1008     , 1009         ].iter().zip(
+                                      [DWPOS_TILE, DWPOS_FILL, DWPOS_FIT, DWPOS_STRETCH])
             {
                 if IsDlgButtonChecked(hwnd, *button_id) == 1 {
                     out.method = value.0;
                 }
             }
+
+            out.notifications = IsDlgButtonChecked(hwnd, 1010) == 1;
             
             EndDialog(hwnd, Box::leak(out) as *const _ as isize).unwrap();
         },
