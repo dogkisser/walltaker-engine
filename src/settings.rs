@@ -12,7 +12,7 @@ impl Settings {
     pub fn load_or_new() -> Self {
         let out = out_dir();
 
-        let mut t: Self = std::fs::File::open(&out)
+        let mut t: Self = std::fs::File::open(out)
             .context("reading file")
             .and_then(|f| serde_json::from_reader(f).context("reading config"))
             .unwrap_or_default();
