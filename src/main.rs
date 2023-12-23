@@ -8,6 +8,7 @@
 )]
 use std::sync::Arc;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
+use rand::seq::SliceRandom;
 use tokio_tungstenite::{
     tungstenite::{self, Message},
     WebSocketStream, MaybeTlsStream,
@@ -45,6 +46,7 @@ mod settings;
 enum TrayMessage {
     Quit,
     Settings,
+    Refresh,
 }
 
 #[tokio::main]
@@ -89,7 +91,10 @@ async fn app() -> anyhow::Result<()> {
                         IconSource::Resource("tray-icon"))?;
 
     let tx_ = tx.clone();
-
+    tray.inner_mut().add_menu_item_with_id("Refresh", move || {
+        tx_.send(TrayMessage::Refresh).unwrap();
+    })?;
+    let tx_ = tx.clone();
     tray.inner_mut().add_menu_item_with_id("Settings", move || {
         tx_.send(TrayMessage::Settings).unwrap();
     })?;
@@ -176,6 +181,21 @@ async fn app() -> anyhow::Result<()> {
                 TrayMessage::Quit => {
                     wallpaper.reset()?;
                     std::process::exit(0);
+                },
+
+                TrayMessage::Refresh => {
+                    let lock = settings.read().await;
+                    let subscribed = &lock.subscribed;
+                    let id = subscribed.choose(&mut rand::thread_rng());
+
+                    if let Some(id) = id {
+                        let msg = walltaker::check_message(*id)?;
+                    
+                        write.lock()
+                            .await
+                            .send(tungstenite::Message::text(&msg))
+                            .await?;
+                    }
                 },
 
                 TrayMessage::Settings => {
@@ -328,7 +348,6 @@ unsafe extern "system" fn subscriptions_proc(hwnd: HWND, message: u32, w_param: 
                                       [DWPOS_TILE, DWPOS_FILL, DWPOS_CENTER, DWPOS_STRETCH])
             {
                 if IsDlgButtonChecked(hwnd, *button_id) == 1 {
-                    println!("settin to {}", value.0);
                     out.method = value.0;
                 }
             }

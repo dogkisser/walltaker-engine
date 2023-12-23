@@ -1496,6 +1496,7 @@ dependencies = [
  "directories",
  "embed-resource",
  "futures-util",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",

@@ -17,6 +17,7 @@ tokio-tungstenite = { version =  "0.21.0", features = [ "native-tls" ] }
 tray-item = { git = "https://github.com/olback/tray-item-rs" }
 vlc-rs = { git = "https://code.videolan.org/videolan/vlc-rs" }
 winrt-notification = "0.5.1"
+rand = "0.8.5"
 
 [dependencies.tokio]
 version = "1.35.1"

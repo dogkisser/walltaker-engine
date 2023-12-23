@@ -6,8 +6,12 @@
 
 Like Wallpaper Engine but free, open source, and only for porn.
 
-Code really isn't that great and the repo's a bit of a mess. It works though.
+## Running
+
+- Download and install the latest release from [here](https://github.com/zoomasochist/walltaker-engine/releases) (expand "Assets")
+- Open Settings from the system tray and enter your Walltaker ID.
+- Thats it!
 
 ## Building
 
-You might need pkg-config, I think that's it. You shouldn't even need VLC.
+The only external dependency is pkg-config. LibVLC is vendored.
