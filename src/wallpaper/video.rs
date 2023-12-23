@@ -40,6 +40,6 @@ impl Video {
         // TODO: I really don't want to have to do this, but I guess .pause() is
         // async so VLC may still send a few more frames to the screen after we
         // change the wallpaper, overwriting it.
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }

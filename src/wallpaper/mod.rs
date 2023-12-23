@@ -1,5 +1,4 @@
-mod video;
-use video::Video;
+use std::path::Path;
 use windows::{
     core::{PCWSTR, HSTRING},
     Win32::{
@@ -13,6 +12,9 @@ use windows::{
         },
     },
 };
+
+mod video;
+use video::Video;
 
 pub struct Wallpaper {
     video: Video,
@@ -31,11 +33,12 @@ impl Wallpaper {
         })
     }
 
-    pub fn set(&mut self, path: &str, method: i32) -> anyhow::Result<()> {
-        // Fair point but shut up
+    pub fn set<T: AsRef<Path>>(&mut self, path: T, method: i32) -> anyhow::Result<()> {
+        let path = path.as_ref().to_string_lossy().to_string();
+
         #[allow(clippy::case_sensitive_file_extension_comparisons)]
         if path.ends_with(".webm") || path.ends_with(".mp4") {
-            self.video.set_video(path);
+            self.video.set_video(&path);
             self.video.play();
         } else {
             self.video.pause();

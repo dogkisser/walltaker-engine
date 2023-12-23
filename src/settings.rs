@@ -11,8 +11,9 @@ pub struct Settings {
 
 impl Settings {
     pub fn load_or_new() -> Self {
-        let out = out_dir();
+        let out = out_path();
 
+        let _ = std::fs::create_dir_all(out.parent().unwrap());
         std::fs::File::open(out)
             .context("reading file")
             .and_then(|f| serde_json::from_reader(f).context("reading config"))
@@ -20,8 +21,10 @@ impl Settings {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        let out = out_dir();
+        let out = out_path();
 
+        // to be safe
+        let _ = std::fs::create_dir_all(out.parent().unwrap());
         let out = std::fs::File::create(out)?;
         serde_json::to_writer_pretty(out, &self)?;
 
@@ -29,10 +32,11 @@ impl Settings {
     }
 }
 
-fn out_dir() -> std::path::PathBuf {
+fn out_path() -> std::path::PathBuf {
     directories::BaseDirs::new()
         .unwrap()
         .config_dir()
+        .join("walltaker-engine")
         .join("walltaker-engine.json")
 }
 

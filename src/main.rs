@@ -267,19 +267,24 @@ async fn spawn_settings(
     println!("Config saved");
 }
 
-async fn save_file(url: String) -> anyhow::Result<String> {
+/// Saves the file at url to the disk in a cache directory, returning its path.
+async fn save_file(url: String) -> anyhow::Result<std::path::PathBuf> {
     let base_dirs = directories::BaseDirs::new().unwrap();
 
     let ext = std::path::Path::new(&url).extension().unwrap();
-    let out_path = base_dirs.cache_dir().join("out").with_extension(ext);
+    let out_dir = base_dirs
+        .cache_dir()
+        .join("wallpaper-engine");
+    let out_path = out_dir.join("out").with_extension(ext);
 
+    let _ = std::fs::create_dir_all(out_dir);
     let mut out_file = std::fs::File::create(&out_path)?;
     let media_stream = reqwest::get(&url).await?;
     let mut content = std::io::Cursor::new(media_stream.bytes().await?);
 
     std::io::copy(&mut content, &mut out_file)?;
 
-    Ok(out_path.to_string_lossy().to_string())
+    Ok(out_path)
 }
 
 unsafe extern "system" fn subscriptions_proc(
