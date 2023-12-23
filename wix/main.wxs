@@ -77,6 +77,7 @@
 
         <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
         <Property Id='DiskPrompt' Value='Walltaker Engine Installation'/>
+        <Property Id="REINSTALLMODE" Value="amus" />
 
         <Directory Id='TARGETDIR' Name='SourceDir'>
 
