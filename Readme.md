@@ -1,8 +1,14 @@
-<img align="right" height="100" src="res/walltaker-engine.png">
+<img align="right" height="300" src=".github/demo.png">
 
 <br><br>
 
-# [WIP] Walltaker Engine
+- 📬 **Immediate Updates**: Walltaker Engine updates your wallpaper as soon as 
+    somebody changes it - no polling.
+- 🖇 **Stay Connected**: Walltaker Engine can monitor multiple links at once.
+- 🎦 **Vidya**: Walltaker Engine supports images and video wallpapers
+    (with audio!)
+
+# Walltaker Engine
 
 Like Wallpaper Engine but free, open source, and only for porn.
 
@@ -10,7 +16,7 @@ Like Wallpaper Engine but free, open source, and only for porn.
 
 - Download and install the latest release from
     [here](https://github.com/zoomasochist/walltaker-engine/releases) (expand "Assets")
-- Open Settings from the system tray and enter your Walltaker ID.
+- Open Settings from the system tray, enter your Walltaker ID and slap "Add".
 - Thats it!
 
 ## Issues
