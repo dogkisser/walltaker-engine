@@ -147,13 +147,15 @@ async fn app() -> anyhow::Result<()> {
                      * so we can change it immediately to start. */
                     if let Some(id) = settings.read().await.subscribed.last() {
                         let msg = walltaker::check_message(*id)?;
+                        let write = Arc::clone(&write);
 
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                        println!("Immediately setting wallpaper with ID {id}");
-                        write.lock()
-                            .await
-                            .send(tungstenite::Message::text(msg))
-                            .await?;
+                        tokio::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(4000)).await;
+                            let _ = write.lock()
+                                .await
+                                .send(tungstenite::Message::text(&msg))
+                                .await;
+                        });
                     }
                 },
 
@@ -161,11 +163,11 @@ async fn app() -> anyhow::Result<()> {
                     let out_path = save_file(message.post_url).await?;
                     wallpaper.set(&out_path, settings.read().await.method)?;
 
-                    // A toast!
                     let set_by = message.set_by
                         .unwrap_or_else(|| String::from("Anonymous"));
                     
                     if settings.read().await.notifications {
+                        // A toast!
                         Toast::new(Toast::POWERSHELL_APP_ID)
                             .icon(std::path::Path::new(&out_path),
                                 IconCrop::Circular,
