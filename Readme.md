@@ -15,7 +15,7 @@ Like Wallpaper Engine but free, open source, and only for porn.
 ## Running
 
 - Download and install the latest release from
-    [here](https://github.com/zoomasochist/walltaker-engine/releases) (expand "Assets")
+    [here](https://github.com/zoomasochist/walltaker-engine/releases)
 - Open Settings from the system tray, enter your Walltaker ID and slap "Add".
 - Thats it!
 
