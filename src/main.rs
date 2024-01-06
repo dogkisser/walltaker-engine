@@ -48,6 +48,8 @@ enum TrayMessage {
     SaveCurrent,
 }
 
+// type Writer = Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let instance = single_instance::SingleInstance::new("walltaker-engine")?;
@@ -66,6 +68,19 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+// TODO: Expanding this to support separators would be great but this is already
+// an improvement.
+macro_rules! tray_items {
+    ($tx:ident, $tray:ident, $($text:literal, $variant:expr;)+) => {
+        $(
+            let tx = $tx.clone();
+            $tray.inner_mut().add_menu_item_with_id($text, move || {
+                tx.send($variant).unwrap();
+            })?;
+        )*
+    };
 }
 
 async fn app() -> anyhow::Result<()> {
@@ -87,27 +102,15 @@ async fn app() -> anyhow::Result<()> {
     let mut tray = TrayItem::new("Walltaker Engine",
                         IconSource::Resource("tray-icon"))?;
 
-    let tx_ = tx.clone();
-    tray.inner_mut().add_menu_item_with_id("Save Current", move || {
-        tx_.send(TrayMessage::SaveCurrent).unwrap();
-    })?;
-    let tx_ = tx.clone();
-    tray.inner_mut().add_menu_item_with_id("Open Current", move || {
-        tx_.send(TrayMessage::OpenCurrent).unwrap();
-    })?;
+    tray_items![tx, tray,
+        "Refresh",      TrayMessage::Refresh;
+        "Save Current", TrayMessage::SaveCurrent;
+        "Open Current", TrayMessage::OpenCurrent;
+    ];
     tray.inner_mut().add_separator()?;
-    let tx_ = tx.clone();
-    tray.inner_mut().add_menu_item_with_id("Refresh", move || {
-        tx_.send(TrayMessage::Refresh).unwrap();
-    })?;
-    let tx_ = tx.clone();
-    tray.inner_mut().add_menu_item_with_id("Settings", move || {
-        tx_.send(TrayMessage::Settings).unwrap();
-    })?;
+    tray_items![tx, tray, "Settings", TrayMessage::Settings;];
     tray.inner_mut().add_separator()?;
-    tray.add_menu_item("Quit", move || {
-        tx.send(TrayMessage::Quit).unwrap();
-    })?;
+    tray_items![tx, tray, "Quit", TrayMessage::Quit;];
 
     if settings.read().await.notifications {
         Toast::new(Toast::POWERSHELL_APP_ID)
@@ -129,12 +132,10 @@ async fn app() -> anyhow::Result<()> {
             println!("Raw msg: {msg}");
 
             match serde_json::from_str(&msg)? {
+                Incoming::Ping { .. } => { },
+
                 Incoming::ConfirmSubscription { identifier } => {
                     println!("Successfully subscribed to {identifier}");
-                },
-
-                Incoming::Ping { .. } => {
-                    println!("Keepalive"); 
                 },
 
                 Incoming::Welcome => {
@@ -193,28 +194,18 @@ async fn app() -> anyhow::Result<()> {
             }
         }
 
-        /* Read winapi events */
-        unsafe {
-            let mut msg = MSG::default();
-            if PeekMessageA(std::ptr::addr_of_mut!(msg), HWND(0), 0, 0, PM_REMOVE).0 == 1 {
-                TranslateMessage(&msg);
-                DispatchMessageA(&msg);
-            }
-        }
-
-        /* Read system tray events */
         if let Ok(message) = rx.try_recv() {
             match message {
                 TrayMessage::Quit => {
                     wallpaper.reset()?;
                     std::process::exit(0);
                 },
-
+    
                 TrayMessage::Refresh => {
                     let lock = settings.read().await;
                     let subscribed = &lock.subscribed;
                     let id = subscribed.choose(&mut rand::thread_rng());
-
+    
                     if let Some(id) = id {
                         let msg = walltaker::check_message(*id)?;
                     
@@ -225,46 +216,9 @@ async fn app() -> anyhow::Result<()> {
                             .await?;
                     }
                 },
-
-                TrayMessage::SaveCurrent => {
-                    let current_file = wallpaper.current_media();
-
-                    if current_file.is_empty() {
-                        continue;
-                    }
-
-                    let current_file = std::path::PathBuf::from(current_file);
-                    let ext = current_file.extension().unwrap().to_string_lossy();
-                    let placeholder = format!("wallpaper.{ext}");
-
-                    let mut out = Vec::<u16>::with_capacity(1024);
-                    out.append(&mut placeholder.encode_utf16().collect::<Vec<u16>>());
-                    out.push('\0' as u16);
-                    let ptr = PWSTR::from_raw(out.as_mut_ptr());
-
-                    let filter = HSTRING::from(format!("{} Files (*.{ext})\0*.{ext}\0",
-                        ext.to_uppercase()));
-                    let pcw = PCWSTR::from_raw(filter.as_ptr());
-
-                    let mut cfg = OPENFILENAMEW {
-                        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
-                        lpstrFile: ptr,
-                        lpstrFilter: pcw,
-                        nMaxFile: 1024,
-                        Flags: OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
-                        ..Default::default()
-                    };
-
-                    if (unsafe { GetSaveFileNameW(std::ptr::addr_of_mut!(cfg)).0 } == 1) {
-                        let save_to = unsafe { cfg.lpstrFile.to_string()? };
-                        println!("Out: {save_to}");
-
-                        let _ = std::fs::copy(current_file, save_to);
-                    } else {
-                        println!("Couldn't save file: {:?}",
-                           unsafe { windows::Win32::UI::Controls::Dialogs::CommDlgExtendedError() });
-                    }
-                },
+    
+                TrayMessage::SaveCurrent =>
+                    save_current_wallpaper(&wallpaper)?,
                 
                 TrayMessage::OpenCurrent => {
                     if let Some(ref current_url) = current_url {
@@ -287,16 +241,71 @@ async fn app() -> anyhow::Result<()> {
                         };
                     }
                 },
-
+    
                 TrayMessage::Settings => {
                     let c_settings = Arc::clone(&settings);
                     let write = Arc::clone(&write);
-
+    
                     tokio::spawn(spawn_settings(c_settings, write));
                 },
             }
         }
+
+        /* Read winapi events */
+        unsafe {
+            let mut msg = MSG::default();
+            if PeekMessageA(std::ptr::addr_of_mut!(msg), HWND(0), 0, 0, PM_REMOVE).0 == 1 {
+                TranslateMessage(&msg);
+                DispatchMessageA(&msg);
+            }
+        }
+
     }
+}
+
+fn save_current_wallpaper(wallpaper: &wallpaper::Wallpaper) -> anyhow::Result<()> {
+    let current_file = wallpaper.current_media();
+    
+    if current_file.is_empty() {
+        return Ok(());
+    }
+
+    let current_file = std::path::PathBuf::from(current_file);
+    let ext = current_file.extension().unwrap().to_string_lossy();
+    let placeholder = format!("wallpaper.{ext}");
+
+    let mut out = Vec::<u16>::with_capacity(1024);
+    out.append(&mut placeholder.encode_utf16().collect::<Vec<u16>>());
+    out.push('\0' as u16);
+    let ptr = PWSTR::from_raw(out.as_mut_ptr());
+
+    let filter = HSTRING::from(format!("{} Files (*.{ext})\0*.{ext}\0",
+        ext.to_uppercase()));
+    let pcw = PCWSTR::from_raw(filter.as_ptr());
+
+    let mut cfg = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        lpstrFile: ptr,
+        lpstrFilter: pcw,
+        nMaxFile: 1024,
+        Flags: OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
+        ..Default::default()
+    };
+
+    if (unsafe { GetSaveFileNameW(std::ptr::addr_of_mut!(cfg)).0 } == 1) {
+        let save_to = unsafe { cfg.lpstrFile.to_string()? };
+        println!("Out: {save_to}");
+
+        let _ = std::fs::copy(current_file, save_to);
+    } else {
+        let err = unsafe {
+            windows::Win32::UI::Controls::Dialogs::CommDlgExtendedError()
+        };
+
+        println!("Couldn't save file: {err:?}");
+    }
+
+    Ok(())
 }
 
 async fn spawn_settings(
@@ -457,8 +466,8 @@ unsafe extern "system" fn subscriptions_proc(
         },
 
         /* IDC_RADIO_* */
-        x@(WM_COMMAND, _, 1006..=1009) => {
-            let method = match x.2 {
+        (WM_COMMAND, _, x@1006..=1009) => {
+            let method = match x {
                 1006 => DWPOS_TILE,
                 1007 => DWPOS_FILL,
                 1008 => DWPOS_FIT,

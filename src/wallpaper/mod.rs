@@ -19,19 +19,19 @@ use video::Video;
 pub struct Wallpaper {
     video: Video,
     current_media: String,
-    old_wallpaper: String,
-    old_wallpaper_method: i32,
+    initial: String,
+    initial_method: i32,
 }
 
 impl Wallpaper {
     pub fn new(hwnds: &[HWND]) -> anyhow::Result<Self> {
-        let (old_wallpaper, old_wallpaper_method) = get_old_wallpaper()?;
+        let (initial, initial_method) = get_old_wallpaper()?;
 
         Ok(Wallpaper {
             video: Video::new(hwnds),
             current_media: String::new(),
-            old_wallpaper,
-            old_wallpaper_method,
+            initial,
+            initial_method,
         })
     }
 
@@ -73,8 +73,8 @@ impl Wallpaper {
     }
 
     pub fn reset(&mut self) -> anyhow::Result<()> {
-        let old = self.old_wallpaper.clone();
-        self.set(&old, self.old_wallpaper_method)
+        let old = self.initial.clone();
+        self.set(&old, self.initial_method)
     }
 }
 
