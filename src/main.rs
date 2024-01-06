@@ -5,6 +5,7 @@
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
     clippy::too_many_lines,
+    clippy::wildcard_imports,
 )]
 use std::sync::Arc;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
@@ -20,22 +21,14 @@ use futures_util::{StreamExt, SinkExt, stream::SplitSink};
 use windows::{
     core::{s, w, PCSTR, HSTRING},
     Win32::{
-        Foundation::{WPARAM, LPARAM, HWND, BOOL, HINSTANCE},
+        Foundation::*,
         UI::{
-            WindowsAndMessaging::{
-                LB_GETCOUNT, LB_GETTEXTLEN, LB_GETTEXT, BM_SETCHECK,
-                SMTO_NORMAL, MB_OK, MB_ICONERROR, WM_INITDIALOG, WM_COMMAND,
-                LB_ADDSTRING, LB_DELETESTRING, LB_GETCURSEL, LB_ERR, WM_CLOSE,
-                FindWindowA, SendMessageTimeoutA, EnumWindows, FindWindowExA,
-                MessageBoxW, DialogBoxParamW, GetDlgItemInt, SetDlgItemTextA,
-                SendDlgItemMessageA, EndDialog,
-            },
+            WindowsAndMessaging::*,
             Controls::{IsDlgButtonChecked, BST_CHECKED, EM_SETCUEBANNER},
-            Shell::{
-                DWPOS_FIT, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FILL,
-                DESKTOP_WALLPAPER_POSITION
-            }
+            Shell::*,
         },
+        Graphics::Gdi::{HMONITOR, HDC, EnumDisplayMonitors, HBRUSH},
+        System::LibraryLoader::GetModuleHandleA,
     },
 };
 
@@ -73,11 +66,10 @@ async fn app() -> anyhow::Result<()> {
     let settings = Arc::new(RwLock::new(settings::Settings::load_or_new()));
     println!("Loaded settings: {settings:?}");
 
-    let bg_hwnd = unsafe { find_hwnd()? }
+    let bg_hwnds = unsafe { find_hwnds()? }
         .ok_or_else(|| anyhow!("Couldn't find workerW HWND."))?;
-    println!("WorkerW HWND: 0x{:X}", bg_hwnd.0);
-    let mut wallpaper = wallpaper::Wallpaper::new((bg_hwnd.0 as *mut usize)
-        .cast())?;
+    println!("WorkerW HWNDS: {bg_hwnds:?}");
+    let mut wallpaper = wallpaper::Wallpaper::new(&bg_hwnds)?;
 
     /* Set up websocket */
     let (ws_stream, _) = tokio_tungstenite::connect_async(
@@ -180,6 +172,15 @@ async fn app() -> anyhow::Result<()> {
                             .unwrap();
                     }
                 }
+            }
+        }
+
+        /* Read winapi events */
+        unsafe {
+            let mut msg = MSG::default();
+            if PeekMessageA(std::ptr::addr_of_mut!(msg), HWND(0), 0, 0, PM_REMOVE).0 == 1 {
+                TranslateMessage(&msg);
+                DispatchMessageA(&msg);
             }
         }
 
@@ -456,7 +457,7 @@ fn popup(saying: &str) {
         }
 }
 
-unsafe fn find_hwnd() -> anyhow::Result<Option<HWND>> {
+unsafe fn find_hwnds() -> anyhow::Result<Option<Vec<HWND>>> {
     let progman = FindWindowA(s!("Progman"), PCSTR::null());
     
     // The ability to send a window 0x052C is undocumented.
@@ -469,16 +470,42 @@ unsafe fn find_hwnd() -> anyhow::Result<Option<HWND>> {
         1000,
         None);
     
-    let mut hwnd = HWND(0);
-    EnumWindows(Some(enum_proc), LPARAM(std::ptr::addr_of_mut!(hwnd) as isize))?;
+    let mut workerw_hwnd = HWND(0);
+    EnumWindows(Some(enum_windows_proc),
+        LPARAM(std::ptr::addr_of_mut!(workerw_hwnd) as isize))?;
+    println!("WorkerW HWND: 0x{:x}", workerw_hwnd.0);
 
-    match hwnd.0 {
-        0 => Ok(None),
-        _ => Ok(Some(hwnd)),
-    }
+    let class = WNDCLASSA {
+        style: WNDCLASS_STYLES(0),
+        lpfnWndProc: Some(wndclass_proc),
+        cbClsExtra: 0,
+        cbWndExtra: 0,
+        hInstance: HINSTANCE(GetModuleHandleA(PCSTR::null())?.0),
+        hIcon: HICON(0),
+        hCursor: HCURSOR(0),
+        hbrBackground: HBRUSH(0),
+        lpszMenuName: s!(""),
+        lpszClassName: s!("Walltaker Engine")
+    };
+    
+    RegisterClassA(std::ptr::addr_of!(class));
+
+    // This pushes the workerw hwnd as the first element of the Vec so I don't
+    // have to bother creating a struct etc. to move that extra information in.
+    let mut hwnds = Vec::from(&[workerw_hwnd]);
+    let ptr = std::ptr::addr_of_mut!(hwnds) as isize;
+    EnumDisplayMonitors(HDC(0), None, Some(enum_monitors_proc), LPARAM(ptr));
+    // The workerw hwnd is removed at the end :)
+    hwnds.swap_remove(0);
+
+    Ok(Some(hwnds))
 }
 
-unsafe extern "system" fn enum_proc(hwnd: HWND, out: LPARAM) -> BOOL {
+unsafe extern "system" fn wndclass_proc(_: HWND, _: u32, _: WPARAM, _: LPARAM) -> LRESULT {
+    LRESULT(1)
+}
+
+unsafe extern "system" fn enum_windows_proc(hwnd: HWND, out: LPARAM) -> BOOL {
     let wind = FindWindowExA(hwnd, HWND(0), s!("SHELLDLL_DefView"),
         PCSTR::null());
 
@@ -489,6 +516,41 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, out: LPARAM) -> BOOL {
 
         *out = target;
     }
+
+    true.into()
+}
+
+unsafe extern "system" fn enum_monitors_proc(
+    _hmonitor: HMONITOR,
+    _hdc: HDC,
+    rect: *mut RECT,
+    out: LPARAM,
+) -> BOOL {
+    let hwnds: &mut Vec<HWND> = &mut *(out.0 as *mut _);
+    let workerw_hwnd = hwnds[0];
+
+    let RECT { left: x, top: y, right, bottom } = *rect;
+    let width = right - x;
+    let height = bottom - y;
+
+    println!("Creating window at {x}:{y} size {width}:{height}");
+
+    let next_hwnd = CreateWindowExA(
+        WS_EX_NOACTIVATE,
+        s!("Walltaker Engine"),
+        s!(""),
+        WS_CHILD | WS_VISIBLE,
+        x,
+        y,
+        width,
+        height,
+        workerw_hwnd,
+        HMENU(0),
+        HINSTANCE(0),
+        None,
+    );
+
+    hwnds.push(next_hwnd);
 
     true.into()
 }

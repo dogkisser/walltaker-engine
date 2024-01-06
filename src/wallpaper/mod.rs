@@ -9,7 +9,7 @@ use windows::{
         UI::Shell::{
             DESKTOP_WALLPAPER_POSITION,
             IDesktopWallpaper, DesktopWallpaper
-        },
+        }, Foundation::HWND,
     },
 };
 
@@ -23,11 +23,11 @@ pub struct Wallpaper {
 }
 
 impl Wallpaper {
-    pub fn new(hwnd: *mut std::ffi::c_void) -> anyhow::Result<Self> {
+    pub fn new(hwnds: &[HWND]) -> anyhow::Result<Self> {
         let (old_wallpaper, old_wallpaper_method) = get_old_wallpaper()?;
 
         Ok(Wallpaper {
-            video: Video::new(hwnd),
+            video: Video::new(hwnds),
             old_wallpaper,
             old_wallpaper_method,
         })

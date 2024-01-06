@@ -32,7 +32,9 @@ features = [
 [dependencies.windows]
 version = "0.52.0"
 features = [
+    "Win32_System_LibraryLoader",
     "Win32_System_Com",
+    "Win32_Graphics_Gdi",
     "Win32_Graphics",
     "Win32_UI_Controls",
     "Win32_UI_WindowsAndMessaging",

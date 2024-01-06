@@ -1,12 +1,13 @@
 use vlc::{Instance, Media, MediaPlayer};
+use windows::Win32::Foundation::HWND;
 
 pub struct Video {
     instance: Instance,
-    media_player: MediaPlayer,
+    media_players: Vec<MediaPlayer>,
 }
 
 impl Video {
-    pub fn new(hwnd: *mut std::ffi::c_void) -> Self {
+    pub fn new(hwnds: &[HWND]) -> Self {
         // None of --loop, --repeat, -L, or -R, neither --input-repeat=-1, work.
         // Anymore, at least.
         // There's no API to loop videos.
@@ -16,27 +17,37 @@ impl Video {
         let instance = Instance::with_args(Some(vec![
             String::from("--input-repeat=99999999")
         ])).unwrap();
-        let media_player = MediaPlayer::new(&instance).unwrap();
 
-        media_player.set_hwnd(hwnd);
+        let mut s = Self { instance, media_players: Vec::new(), };
 
-        Self {
-            instance,
-            media_player,
+        for hwnd in hwnds {
+            let media_player = MediaPlayer::new(&s.instance).unwrap();
+            media_player.set_hwnd(hwnd.0 as *mut std::ffi::c_void);
+
+            s.media_players.push(media_player);
         }
+
+        s
     }
 
     pub fn set_video(&mut self, to: &str) {
         let media = Media::new_path(&self.instance, to).unwrap();
-        self.media_player.set_media(&media);
+
+        for media_player in &self.media_players {
+            media_player.set_media(&media);
+        }
     }
 
     pub fn play(&self) {
-        self.media_player.play().unwrap();
+        for media_player in &self.media_players {
+            media_player.play().unwrap();
+        }
     }
 
     pub fn pause(&self) {
-        self.media_player.pause();
+        for media_player in &self.media_players {
+            media_player.pause();
+        }
         // TODO: I really don't want to have to do this, but I guess .pause() is
         // async so VLC may still send a few more frames to the screen after we
         // change the wallpaper, overwriting it.
