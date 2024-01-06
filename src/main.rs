@@ -88,8 +88,8 @@ async fn app() -> anyhow::Result<()> {
     println!("Loaded settings: {settings:?}");
 
     let bg_hwnds = unsafe { find_hwnds()? };
-    println!("WorkerW HWNDS: {bg_hwnds:?}");
-    let mut wallpaper = wallpaper::Wallpaper::new(&bg_hwnds)?;
+    println!("WorkerW HWNDs: {bg_hwnds:?}");
+    let wallpaper = Arc::new(Mutex::new(wallpaper::Wallpaper::new(&bg_hwnds)?));
 
     /* Set up websocket */
     let (ws_stream, _) = tokio_tungstenite::connect_async(
@@ -170,7 +170,7 @@ async fn app() -> anyhow::Result<()> {
 
                 Incoming::Message { message, .. } => {
                     let out_path = save_file(&message.post_url).await?;
-                    wallpaper.set(&out_path, settings.read().await.method)?;
+                    wallpaper.lock().await.set(&out_path, settings.read().await.method)?;
 
                     current_url = Some(message.post_url);
 
@@ -197,7 +197,7 @@ async fn app() -> anyhow::Result<()> {
         if let Ok(message) = rx.try_recv() {
             match message {
                 TrayMessage::Quit => {
-                    wallpaper.reset()?;
+                    wallpaper.lock().await.reset()?;
                     std::process::exit(0);
                 },
     
@@ -217,8 +217,11 @@ async fn app() -> anyhow::Result<()> {
                     }
                 },
     
-                TrayMessage::SaveCurrent =>
-                    save_current_wallpaper(&wallpaper)?,
+                TrayMessage::SaveCurrent => {
+                    let lock = wallpaper.lock().await;
+                    let cur = lock.current_media();
+                    save_current_wallpaper(cur)?;
+                },
                 
                 TrayMessage::OpenCurrent => {
                     if let Some(ref current_url) = current_url {
@@ -245,8 +248,9 @@ async fn app() -> anyhow::Result<()> {
                 TrayMessage::Settings => {
                     let c_settings = Arc::clone(&settings);
                     let write = Arc::clone(&write);
-    
-                    tokio::spawn(spawn_settings(c_settings, write));
+                    
+                    let wallpaper = Arc::clone(&wallpaper);
+                    tokio::spawn(spawn_settings(c_settings, wallpaper, write));
                 },
             }
         }
@@ -263,9 +267,7 @@ async fn app() -> anyhow::Result<()> {
     }
 }
 
-fn save_current_wallpaper(wallpaper: &wallpaper::Wallpaper) -> anyhow::Result<()> {
-    let current_file = wallpaper.current_media();
-    
+fn save_current_wallpaper(current_file: &str) -> anyhow::Result<()> {
     if current_file.is_empty() {
         return Ok(());
     }
@@ -310,6 +312,7 @@ fn save_current_wallpaper(wallpaper: &wallpaper::Wallpaper) -> anyhow::Result<()
 
 async fn spawn_settings(
     settings: Arc<RwLock<settings::Settings>>,
+    wallpaper: Arc<Mutex<wallpaper::Wallpaper>>,
     write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
 ) {
     let new = {
@@ -347,6 +350,8 @@ async fn spawn_settings(
                 .await
                 .unwrap();
         }
+
+        let _ = wallpaper.lock().await.set_method(new.method);
 
         new
     };
@@ -466,17 +471,15 @@ unsafe extern "system" fn subscriptions_proc(
         },
 
         /* IDC_RADIO_* */
-        (WM_COMMAND, _, x@1006..=1009) => {
-            let method = match x {
-                1006 => DWPOS_TILE,
-                1007 => DWPOS_FILL,
-                1008 => DWPOS_FIT,
-                1009 => DWPOS_STRETCH,
-                _ => unreachable!(),
-            };
-
-            let _ = wallpaper::Wallpaper::set_method(method.0);
-        },
+        // (WM_COMMAND, _, x@1006..=1009) => {
+        //     // let method = match x {
+        //     //     1006 => DWPOS_TILE,
+        //     //     1007 => DWPOS_FILL,
+        //     //     1008 => DWPOS_FIT,
+        //     //     1009 => DWPOS_STRETCH,
+        //     //     _ => unreachable!(),
+        //     // };
+        // },
 
         /* IDC_NOTIFICATIONS */
         (WM_COMMAND, _, 1010) => { },

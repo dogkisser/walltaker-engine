@@ -19,6 +19,7 @@ use video::Video;
 pub struct Wallpaper {
     video: Video,
     current_media: String,
+    playing_video: bool,
     initial: String,
     initial_method: i32,
 }
@@ -30,6 +31,7 @@ impl Wallpaper {
         Ok(Wallpaper {
             video: Video::new(hwnds),
             current_media: String::new(),
+            playing_video: false,
             initial,
             initial_method,
         })
@@ -42,9 +44,11 @@ impl Wallpaper {
 
         #[allow(clippy::case_sensitive_file_extension_comparisons)]
         if path.ends_with(".webm") || path.ends_with(".mp4") {
+            self.playing_video = true;
             self.video.set_video(&path);
             self.video.play();
         } else {
+            self.playing_video = false;
             self.video.pause();
 
             unsafe {
@@ -62,11 +66,15 @@ impl Wallpaper {
         &self.current_media
     }
 
-    pub fn set_method(to: i32) -> anyhow::Result<()> {
-        unsafe {
-            CoInitializeEx(None, COINIT_MULTITHREADED)?;
-            let idw: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)?;
-            idw.SetPosition(DESKTOP_WALLPAPER_POSITION(to))?;
+    pub fn set_method(&mut self, to: i32) -> anyhow::Result<()> {
+        if self.playing_video {
+            self.video.set_aspect_ratio(to)?;
+        } else {
+            unsafe {
+                CoInitializeEx(None, COINIT_MULTITHREADED)?;
+                let idw: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)?;
+                idw.SetPosition(DESKTOP_WALLPAPER_POSITION(to))?;
+            }
         }
     
         Ok(())

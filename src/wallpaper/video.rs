@@ -1,8 +1,9 @@
-use vlc::{Instance, Media, MediaPlayer};
-use windows::Win32::Foundation::HWND;
+use vlc::{Instance, Media, MediaPlayer, MediaPlayerVideoEx};
+use windows::Win32::{Foundation::{HWND, RECT}, UI::{Shell::DWPOS_STRETCH, WindowsAndMessaging::GetWindowRect}};
 
 pub struct Video {
     instance: Instance,
+    intended_aspect_ratios: Vec<String>,
     media_players: Vec<MediaPlayer>,
 }
 
@@ -18,7 +19,11 @@ impl Video {
             String::from("--input-repeat=99999999")
         ])).unwrap();
 
-        let mut s = Self { instance, media_players: Vec::new(), };
+        let mut s = Self {
+            instance,
+            intended_aspect_ratios: vec![String::from("16:9")],
+            media_players: Vec::new(),
+        };
 
         for hwnd in hwnds {
             let media_player = MediaPlayer::new(&s.instance).unwrap();
@@ -31,11 +36,29 @@ impl Video {
     }
 
     pub fn set_video(&mut self, to: &str) {
+        self.intended_aspect_ratios.clear();
         let media = Media::new_path(&self.instance, to).unwrap();
 
         for media_player in &self.media_players {
             media_player.set_media(&media);
         }
+    }
+
+    /* Stretch is the only supported ulterior mode. Otherwise the intended video
+     * resolution is used, scaled ("Fit"). */
+    pub fn set_aspect_ratio(&mut self, to: i32) -> anyhow::Result<()> {
+        if to == DWPOS_STRETCH.0 {
+            for media_player in &self.media_players {
+                let res = hwnd_res(HWND(media_player.get_hwnd().unwrap() as isize))?;
+                media_player.set_aspect_ratio(Some(&res));
+            }
+        } else {
+            for media_player in &self.media_players {
+                media_player.set_aspect_ratio(None);
+            }
+        }
+
+        Ok(())
     }
 
     pub fn play(&self) {
@@ -53,4 +76,18 @@ impl Video {
         // change the wallpaper, overwriting it.
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+}
+
+fn hwnd_res(hwnd: HWND) -> anyhow::Result<String> {
+    let (w, h) = unsafe {
+        let mut r = RECT::default();
+        GetWindowRect(
+            hwnd,
+            &mut r,
+        )?;
+
+        (r.right - r.left, r.bottom - r.top)
+    };
+
+    Ok(format!("{w}:{h}"))
 }
