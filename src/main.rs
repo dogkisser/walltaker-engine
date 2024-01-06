@@ -16,7 +16,6 @@ use tokio_tungstenite::{
 };
 use winrt_notification::{Toast, IconCrop};
 use tray_item::{IconSource, TrayItem};
-use anyhow::anyhow;
 use futures_util::{StreamExt, SinkExt, stream::SplitSink};
 use windows::{
     core::{s, w, PCSTR, HSTRING, PWSTR, PCWSTR},
@@ -73,8 +72,7 @@ async fn app() -> anyhow::Result<()> {
     let settings = Arc::new(RwLock::new(settings::Settings::load_or_new()));
     println!("Loaded settings: {settings:?}");
 
-    let bg_hwnds = unsafe { find_hwnds()? }
-        .ok_or_else(|| anyhow!("Couldn't find workerW HWND."))?;
+    let bg_hwnds = unsafe { find_hwnds()? };
     println!("WorkerW HWNDS: {bg_hwnds:?}");
     let mut wallpaper = wallpaper::Wallpaper::new(&bg_hwnds)?;
 
@@ -482,8 +480,7 @@ unsafe extern "system" fn subscriptions_proc(
                 LB_GETCOUNT,
                 WPARAM(0),
                 LPARAM(0)).0 as usize;
-            
-            // Terrible, horrible, not safe, very dangerous code
+    
             for i in 0..item_count {
                 let len = SendDlgItemMessageA(
                     hwnd,
@@ -538,9 +535,10 @@ fn popup(saying: &str) {
         }
 }
 
-unsafe fn find_hwnds() -> anyhow::Result<Option<Vec<HWND>>> {
+unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {
     let progman = FindWindowA(s!("Progman"), PCSTR::null());
-    
+    anyhow::ensure!(progman.0 != 0, "No progman process");
+
     // The ability to send a window 0x052C is undocumented.
     SendMessageTimeoutA(
         progman,
@@ -554,6 +552,7 @@ unsafe fn find_hwnds() -> anyhow::Result<Option<Vec<HWND>>> {
     let mut workerw_hwnd = HWND(0);
     EnumWindows(Some(enum_windows_proc),
         LPARAM(std::ptr::addr_of_mut!(workerw_hwnd) as isize))?;
+    anyhow::ensure!(workerw_hwnd.0 != 0, "Couldn't find WorkerW");
     println!("WorkerW HWND: 0x{:x}", workerw_hwnd.0);
 
     let class = WNDCLASSA {
@@ -579,10 +578,18 @@ unsafe fn find_hwnds() -> anyhow::Result<Option<Vec<HWND>>> {
     // The workerw hwnd is removed at the end :)
     hwnds.swap_remove(0);
 
-    Ok(Some(hwnds))
+    anyhow::ensure!(!hwnds.is_empty(), "Couldn't create HWNDs");
+
+    Ok(hwnds)
 }
 
-unsafe extern "system" fn wndclass_proc(_: HWND, _: u32, _: WPARAM, _: LPARAM) -> LRESULT {
+unsafe extern "system" fn wndclass_proc(
+    _: HWND,
+    _: u32,
+    _: WPARAM,
+    _: LPARAM
+) -> LRESULT
+{
     LRESULT(1)
 }
 
