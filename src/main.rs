@@ -19,12 +19,17 @@ use tray_item::{IconSource, TrayItem};
 use anyhow::anyhow;
 use futures_util::{StreamExt, SinkExt, stream::SplitSink};
 use windows::{
-    core::{s, w, PCSTR, HSTRING},
+    core::{s, w, PCSTR, HSTRING, PWSTR, PCWSTR},
     Win32::{
         Foundation::*,
         UI::{
             WindowsAndMessaging::*,
-            Controls::{IsDlgButtonChecked, BST_CHECKED, EM_SETCUEBANNER},
+            Controls::{
+                IsDlgButtonChecked, BST_CHECKED, EM_SETCUEBANNER,
+                Dialogs::{
+                    OFN_EXPLORER, OPENFILENAMEW, GetSaveFileNameW,
+                    OFN_PATHMUSTEXIST, OFN_HIDEREADONLY,
+                }},
             Shell::*,
         },
         Graphics::Gdi::{HMONITOR, HDC, EnumDisplayMonitors, HBRUSH},
@@ -40,6 +45,8 @@ enum TrayMessage {
     Quit,
     Settings,
     Refresh,
+    OpenCurrent,
+    SaveCurrent,
 }
 
 #[tokio::main]
@@ -83,6 +90,15 @@ async fn app() -> anyhow::Result<()> {
                         IconSource::Resource("tray-icon"))?;
 
     let tx_ = tx.clone();
+    tray.inner_mut().add_menu_item_with_id("Save Current", move || {
+        tx_.send(TrayMessage::SaveCurrent).unwrap();
+    })?;
+    let tx_ = tx.clone();
+    tray.inner_mut().add_menu_item_with_id("Open Current", move || {
+        tx_.send(TrayMessage::OpenCurrent).unwrap();
+    })?;
+    tray.inner_mut().add_separator()?;
+    let tx_ = tx.clone();
     tray.inner_mut().add_menu_item_with_id("Refresh", move || {
         tx_.send(TrayMessage::Refresh).unwrap();
     })?;
@@ -102,6 +118,8 @@ async fn app() -> anyhow::Result<()> {
             .show()
             .unwrap();
     }
+
+    let mut current_url = None;
 
     /* Event loop */
     loop {
@@ -152,8 +170,10 @@ async fn app() -> anyhow::Result<()> {
                 },
 
                 Incoming::Message { message, .. } => {
-                    let out_path = save_file(message.post_url).await?;
+                    let out_path = save_file(&message.post_url).await?;
                     wallpaper.set(&out_path, settings.read().await.method)?;
+
+                    current_url = Some(message.post_url);
 
                     let set_by = message.set_by
                         .unwrap_or_else(|| String::from("Anonymous"));
@@ -208,6 +228,68 @@ async fn app() -> anyhow::Result<()> {
                     }
                 },
 
+                TrayMessage::SaveCurrent => {
+                    let current_file = wallpaper.current_media();
+
+                    if current_file.is_empty() {
+                        continue;
+                    }
+
+                    let current_file = std::path::PathBuf::from(current_file);
+                    let ext = current_file.extension().unwrap().to_string_lossy();
+                    let placeholder = format!("wallpaper.{ext}");
+
+                    let mut out = Vec::<u16>::with_capacity(1024);
+                    out.append(&mut placeholder.encode_utf16().collect::<Vec<u16>>());
+                    out.push('\0' as u16);
+                    let ptr = PWSTR::from_raw(out.as_mut_ptr());
+
+                    let filter = HSTRING::from(format!("{} Files (*.{ext})\0*.{ext}\0",
+                        ext.to_uppercase()));
+                    let pcw = PCWSTR::from_raw(filter.as_ptr());
+
+                    let mut cfg = OPENFILENAMEW {
+                        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+                        lpstrFile: ptr,
+                        lpstrFilter: pcw,
+                        nMaxFile: 1024,
+                        Flags: OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
+                        ..Default::default()
+                    };
+
+                    if (unsafe { GetSaveFileNameW(std::ptr::addr_of_mut!(cfg)).0 } == 1) {
+                        let save_to = unsafe { cfg.lpstrFile.to_string()? };
+                        println!("Out: {save_to}");
+
+                        let _ = std::fs::copy(current_file, save_to);
+                    } else {
+                        println!("Couldn't save file: {:?}",
+                           unsafe { windows::Win32::UI::Controls::Dialogs::CommDlgExtendedError() });
+                    }
+                },
+                
+                TrayMessage::OpenCurrent => {
+                    if let Some(ref current_url) = current_url {
+                        let md5 = current_url
+                            .rsplit_once('/')
+                            .unwrap()
+                            .1
+                            .rsplit_once('.')
+                            .unwrap()
+                            .0;
+                        
+                        let url = format!("https://e621.net/posts?md5={md5}");
+                        unsafe { ShellExecuteW(
+                            HWND(0),
+                            PCWSTR::null(),
+                            &HSTRING::from(url),
+                            PCWSTR::null(),
+                            PCWSTR::null(),
+                            SW_SHOW)
+                        };
+                    }
+                },
+
                 TrayMessage::Settings => {
                     let c_settings = Arc::clone(&settings);
                     let write = Arc::clone(&write);
@@ -222,8 +304,7 @@ async fn app() -> anyhow::Result<()> {
 async fn spawn_settings(
     settings: Arc<RwLock<settings::Settings>>,
     write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
-)
-{
+) {
     let new = {
         let settings_reader = settings.read().await;
         let new = {
@@ -271,7 +352,7 @@ async fn spawn_settings(
 }
 
 /// Saves the file at url to the disk in a cache directory, returning its path.
-async fn save_file(url: String) -> anyhow::Result<std::path::PathBuf> {
+async fn save_file(url: &str) -> anyhow::Result<std::path::PathBuf> {
     let base_dirs = directories::BaseDirs::new().unwrap();
 
     let ext = std::path::Path::new(&url).extension().unwrap();
@@ -282,7 +363,7 @@ async fn save_file(url: String) -> anyhow::Result<std::path::PathBuf> {
 
     let _ = std::fs::create_dir_all(out_dir);
     let mut out_file = std::fs::File::create(&out_path)?;
-    let media_stream = reqwest::get(&url).await?;
+    let media_stream = reqwest::get(url).await?;
     let mut content = std::io::Cursor::new(media_stream.bytes().await?);
 
     std::io::copy(&mut content, &mut out_file)?;

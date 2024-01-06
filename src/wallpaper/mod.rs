@@ -18,6 +18,7 @@ use video::Video;
 
 pub struct Wallpaper {
     video: Video,
+    current_media: String,
     old_wallpaper: String,
     old_wallpaper_method: i32,
 }
@@ -28,6 +29,7 @@ impl Wallpaper {
 
         Ok(Wallpaper {
             video: Video::new(hwnds),
+            current_media: String::new(),
             old_wallpaper,
             old_wallpaper_method,
         })
@@ -35,6 +37,8 @@ impl Wallpaper {
 
     pub fn set<T: AsRef<Path>>(&mut self, path: T, method: i32) -> anyhow::Result<()> {
         let path = path.as_ref().to_string_lossy().to_string();
+
+        self.current_media = path.clone();
 
         #[allow(clippy::case_sensitive_file_extension_comparisons)]
         if path.ends_with(".webm") || path.ends_with(".mp4") {
@@ -52,6 +56,10 @@ impl Wallpaper {
         }
 
         Ok(())
+    }
+
+    pub fn current_media(&self) -> &str {
+        &self.current_media
     }
 
     pub fn set_method(to: i32) -> anyhow::Result<()> {
