@@ -103,9 +103,9 @@ async fn app() -> anyhow::Result<()> {
                         IconSource::Resource("tray-icon"))?;
 
     tray_items![tx, tray,
-        "Refresh",      TrayMessage::Refresh;
-        "Save Current", TrayMessage::SaveCurrent;
         "Open Current", TrayMessage::OpenCurrent;
+        "Save Current", TrayMessage::SaveCurrent;
+        "Refresh",      TrayMessage::Refresh;
     ];
     tray.inner_mut().add_separator()?;
     tray_items![tx, tray, "Settings", TrayMessage::Settings;];
