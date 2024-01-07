@@ -26,4 +26,4 @@ Please report them via Github Issues or Discord. Thx.
 
 ## Building
 
-The only external dependency is pkg-config. LibVLC is vendored.
+The only build dependency is pkg-config. LibVLC is vendored.

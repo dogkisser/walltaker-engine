@@ -12,13 +12,13 @@ use std::task::Poll::Ready;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
 use rand::seq::SliceRandom;
 use tokio_tungstenite::{
-    tungstenite::{self, Message},
+    tungstenite::Message,
     WebSocketStream, MaybeTlsStream,
 };
 use winrt_notification::{Toast, IconCrop};
 use tray_item::{IconSource, TrayItem};
 use log::{info, warn, debug};
-use futures_util::{StreamExt, SinkExt, stream::SplitSink, poll};
+use futures_util::{StreamExt, stream::SplitSink, poll};
 use simplelog::{
     CombinedLogger, LevelFilter, ColorChoice, TermLogger,
     WriteLogger, Config, TerminalMode
@@ -45,6 +45,8 @@ use windows::{
 mod wallpaper;
 mod walltaker;
 mod settings;
+
+type Writer = Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
 
 enum TrayMessage {
     Quit,
@@ -96,10 +98,10 @@ macro_rules! tray_items {
 
 async fn app() -> anyhow::Result<()> {
     let settings = Arc::new(RwLock::new(settings::Settings::load_or_new()));
-    info!("Loaded settings: {settings:?}");
+    info!("Loaded settings: {settings:#?}");
 
     let bg_hwnds = unsafe { find_hwnds()? };
-    info!("WorkerW HWNDs: {bg_hwnds:?}");
+    info!("WorkerW HWNDs: {bg_hwnds:#X?}");
     let wallpaper = Arc::new(Mutex::new(wallpaper::Wallpaper::new(&bg_hwnds)?));
 
     /* Set up websocket */
@@ -140,8 +142,6 @@ async fn app() -> anyhow::Result<()> {
             use walltaker::Incoming;
 
             let msg = message?.to_string();
-            debug!("Raw msg: {msg}");
-
             match serde_json::from_str(&msg)? {
                 Incoming::Ping { .. } => { },
 
@@ -153,33 +153,22 @@ async fn app() -> anyhow::Result<()> {
                     info!("Connected to Walltaker");
 
                     let subscribed = &settings.read().await.subscribed;
-                    for link in subscribed {
-                        let msg = walltaker::subscribe_message(*link)?;
-                        write.lock()
-                            .await
-                            .send(tungstenite::Message::text(msg))
-                            .await?;
-                        info!("Requested subscription to {link}");
+                    for id in subscribed {
+                        info!("Requesting subscription to {id}");
+                        walltaker::subscribe_to(&write, *id).await?;
                     }
 
                     /* If at least one ID is already set in the config file,
                      * immediately request the latest set wallpaper
                      * so we can change it immediately to start. */
                     if let Some(id) = settings.read().await.subscribed.last() {
+                        let id = *id;
+                        let write = Arc::clone(&write);
                         info!("Refreshing {id} for initial wallpaper");
-                        let msg = walltaker::check_message(*id)?;
 
-                        tokio::time::sleep(std::time::Duration::from_millis(4000)).await;
-                        write.lock()
-                            .await
-                            .send(tungstenite::Message::text(&msg))
-                            .await?;
-
-                        let msg = walltaker::announce_message(*id)?;
-                        write.lock()
-                            .await
-                            .send(tungstenite::Message::text(msg))
-                            .await?;
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                        walltaker::subscribe_to(&write, id).await.unwrap();
+                        walltaker::check(&write, id).await.unwrap();
                     }
                 },
 
@@ -222,13 +211,7 @@ async fn app() -> anyhow::Result<()> {
                     let id = subscribed.choose(&mut rand::thread_rng());
     
                     if let Some(id) = id {
-                        let msg = walltaker::check_message(*id)?;
-                    
-                        info!("Refreshing ID {id}");
-                        write.lock()
-                            .await
-                            .send(tungstenite::Message::text(&msg))
-                            .await?;
+                        walltaker::check(&write, *id).await?;
                     }
                 },
     
@@ -339,8 +322,8 @@ fn save_current_wallpaper(path: &str, name: &str) -> anyhow::Result<()> {
 async fn spawn_settings(
     settings: Arc<RwLock<settings::Settings>>,
     wallpaper: Arc<Mutex<wallpaper::Wallpaper>>,
-    write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
-) {
+    write: Writer,
+) -> anyhow::Result<()> {
     let new = {
         let settings_reader = settings.read().await;
         let new = {
@@ -368,13 +351,8 @@ async fn spawn_settings(
         // TODO: ability to unsubscribe
         _ = removed;
 
-        for item in added {
-            let msg = walltaker::subscribe_message(*item).unwrap();
-            write.lock()
-                .await
-                .send(tungstenite::Message::text(msg))
-                .await
-                .unwrap();
+        for id in added {
+            walltaker::subscribe_to(&write, *id).await?;
         }
 
         let _ = wallpaper.lock().await.set_method(new.method);
@@ -384,9 +362,10 @@ async fn spawn_settings(
 
     let mut settings = settings.write().await;
     *settings = new.clone();
-    settings.save().unwrap();
+    settings.save()?;
 
     debug!("Config saved");
+    Ok(())
 }
 
 /// Saves the file at url to the disk in a cache directory, returning its path.
@@ -591,7 +570,7 @@ unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {
     EnumWindows(Some(enum_windows_proc),
         LPARAM(std::ptr::addr_of_mut!(workerw_hwnd) as isize))?;
     anyhow::ensure!(workerw_hwnd.0 != 0, "Couldn't find WorkerW");
-    info!("WorkerW HWND: 0x{:x}", workerw_hwnd.0);
+    info!("WorkerW HWND: {:#X?}", workerw_hwnd.0);
 
     let class = WNDCLASSA {
         style: WNDCLASS_STYLES(0),

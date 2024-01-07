@@ -1,4 +1,6 @@
+use futures_util::SinkExt;
 use serde::{Serialize, Deserialize};
+use tokio_tungstenite::tungstenite;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -57,7 +59,7 @@ pub struct Identifier {
     pub id: usize,
 }
 
-pub fn subscribe_message(id: usize) -> anyhow::Result<String> {
+fn subscribe_message(id: usize) -> anyhow::Result<String> {
     let inner = Identifier { channel: String::from("LinkChannel"), id };
     let inner = serde_json::to_string(&inner)?;
 
@@ -65,7 +67,7 @@ pub fn subscribe_message(id: usize) -> anyhow::Result<String> {
     Ok(serde_json::to_string(&msg)?)
 }
 
-pub fn check_message(id: usize) -> anyhow::Result<String> {
+fn check_message(id: usize) -> anyhow::Result<String> {
     let inner = Identifier { channel: String::from("LinkChannel"), id };
     let inner = serde_json::to_string(&inner)?;
 
@@ -81,7 +83,7 @@ pub fn check_message(id: usize) -> anyhow::Result<String> {
     Ok(serde_json::to_string(&msg)?)
 }
 
-pub fn announce_message(id: usize) -> anyhow::Result<String> {
+fn announce_message(id: usize) -> anyhow::Result<String> {
     let inner = Identifier { channel: String::from("LinkChannel"), id };
     let data = AnnounceData {
         client: format!("WalltakerEngine-chewtoy/{VERSION}"),
@@ -93,4 +95,27 @@ pub fn announce_message(id: usize) -> anyhow::Result<String> {
     };
 
     Ok(serde_json::to_string(&msg)?)
+}
+
+pub async fn subscribe_to(writer: &crate::Writer, id: usize) -> anyhow::Result<()> {
+    let msg = subscribe_message(id)?;
+    send(writer, &msg).await?;
+
+    let msg = announce_message(id)?;
+    send(writer, &msg).await?;
+
+    Ok(())
+}
+
+pub async fn check(writer: &crate::Writer, id: usize) -> anyhow::Result<()> {
+    let msg = check_message(id)?;
+    send(writer, &msg).await?;
+
+    Ok(())
+}
+
+async fn send(to: &crate::Writer, msg: &str) -> anyhow::Result<()> {
+    to.lock().await.send(tungstenite::Message::text(msg)).await?;
+
+    Ok(())
 }
