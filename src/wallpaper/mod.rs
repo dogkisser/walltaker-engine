@@ -37,7 +37,12 @@ impl Wallpaper {
         })
     }
 
-    pub fn set<T: AsRef<Path>>(&mut self, path: T, method: i32) -> anyhow::Result<()> {
+    pub fn set<T: AsRef<Path>>(
+        &mut self,
+        path: T,
+        method: i32
+    ) -> anyhow::Result<()>
+    {
         let path = path.as_ref().to_string_lossy().to_string();
 
         self.current_media = path.clone();
@@ -53,7 +58,11 @@ impl Wallpaper {
 
             unsafe {
                 CoInitializeEx(None, COINIT_MULTITHREADED)?;
-                let idw: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)?;
+                let idw: IDesktopWallpaper = CoCreateInstance(
+                    &DesktopWallpaper,
+                    None,
+                    CLSCTX_ALL
+                )?;
                 idw.SetWallpaper(PCWSTR::null(), &HSTRING::from(path))?;
                 idw.SetPosition(DESKTOP_WALLPAPER_POSITION(method))?;
             }
@@ -72,7 +81,11 @@ impl Wallpaper {
         } else {
             unsafe {
                 CoInitializeEx(None, COINIT_MULTITHREADED)?;
-                let idw: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)?;
+                let idw: IDesktopWallpaper = CoCreateInstance(
+                    &DesktopWallpaper,
+                    None,
+                    CLSCTX_ALL
+                )?;
                 idw.SetPosition(DESKTOP_WALLPAPER_POSITION(to))?;
             }
         }
@@ -89,7 +102,11 @@ impl Wallpaper {
 fn get_old_wallpaper() -> anyhow::Result<(String, i32)> {
     unsafe {
         CoInitializeEx(None, COINIT_MULTITHREADED)?;
-        let idw: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)?;
+        let idw: IDesktopWallpaper = CoCreateInstance(
+            &DesktopWallpaper,
+            None,
+            CLSCTX_ALL
+        )?;
         let first_monitor = idw.GetMonitorDevicePathAt(0)?;
 
         let prev_wallpaper_path = std::path::PathBuf::from(
@@ -97,6 +114,9 @@ fn get_old_wallpaper() -> anyhow::Result<(String, i32)> {
 
         let prev_wallpaper_position = idw.GetPosition()?.0;
 
-        Ok((prev_wallpaper_path.to_string_lossy().to_string(), prev_wallpaper_position))
+        Ok((
+            prev_wallpaper_path.to_string_lossy().to_string(),
+            prev_wallpaper_position
+        ))
     }
 }

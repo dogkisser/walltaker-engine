@@ -96,11 +96,13 @@ unsafe extern "system" fn subscriptions_proc(
                 DWPOS_STRETCH => 1009,
                 _ => panic!("invalid settings.method"),
             };
-            SendDlgItemMessageA(hwnd,
+            SendDlgItemMessageA(
+                hwnd,
                 target,
                 BM_SETCHECK,
                 WPARAM(BST_CHECKED.0 as usize),
-                LPARAM(0));
+                LPARAM(0)
+            );
 
             let placeholder = w!("Walltaker ID");
             SendDlgItemMessageA(hwnd,
@@ -153,20 +155,6 @@ unsafe extern "system" fn subscriptions_proc(
                 WPARAM(selected as usize),
                 LPARAM(0));
         },
-
-        /* IDC_RADIO_* */
-        // (WM_COMMAND, _, x@1006..=1009) => {
-        //     // let method = match x {
-        //     //     1006 => DWPOS_TILE,
-        //     //     1007 => DWPOS_FILL,
-        //     //     1008 => DWPOS_FIT,
-        //     //     1009 => DWPOS_STRETCH,
-        //     //     _ => unreachable!(),
-        //     // };
-        // },
-
-        /* IDC_NOTIFICATIONS */
-        (WM_COMMAND, _, 1010) => { },
 
         (WM_CLOSE, _, _) => {
             let mut out: Box<Settings> = Box::default();

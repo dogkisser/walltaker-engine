@@ -1,5 +1,8 @@
 use vlc::{Instance, Media, MediaPlayer, MediaPlayerVideoEx, MediaPlayerAudioEx};
-use windows::Win32::{Foundation::{HWND, RECT}, UI::{Shell::DWPOS_STRETCH, WindowsAndMessaging::GetWindowRect}};
+use windows::Win32::{
+    Foundation::{HWND, RECT},
+    UI::{Shell::DWPOS_STRETCH, WindowsAndMessaging::GetWindowRect}
+};
 
 pub struct Video {
     instance: Instance,

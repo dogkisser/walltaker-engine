@@ -7,8 +7,10 @@
     clippy::too_many_lines,
     clippy::wildcard_imports,
 )]
-use std::sync::Arc;
+use std::{sync::Arc, path::Path};
 use std::task::Poll::Ready;
+use anyhow::anyhow;
+use std::path::PathBuf;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
 use rand::seq::SliceRandom;
 use tokio_tungstenite::{
@@ -23,7 +25,7 @@ use simplelog::{
     WriteLogger, Config, TerminalMode
 };
 use windows::{
-    core::{w, HSTRING, PWSTR, PCWSTR},
+    core::{HSTRING, PWSTR, PCWSTR},
     Win32::{
         Foundation::*,
         UI::{
@@ -171,7 +173,7 @@ async fn app() -> anyhow::Result<()> {
                     let out_path = save_file(&message.post_url).await?;
                     wallpaper.lock().await.set(&out_path, settings.read().await.method)?;
 
-                    current_url = Some(message.post_url);
+                    current_url = Some(PathBuf::from(&message.post_url));
 
                     let set_by = message.set_by
                         .unwrap_or_else(|| String::from("Anonymous"));
@@ -187,6 +189,7 @@ async fn app() -> anyhow::Result<()> {
             }
         }
 
+        /* Read tray messages */
         if let Ok(message) = rx.try_recv() {
             match message {
                 TrayMessage::Quit => {
@@ -207,30 +210,21 @@ async fn app() -> anyhow::Result<()> {
                 TrayMessage::SaveCurrent => {
                     let lock = wallpaper.lock().await;
                     let path = lock.current_media();
-
                     if path.is_empty() || current_url.is_none() {
                         continue;
                     }
+
                     let url = current_url.clone().unwrap();
 
-                    let filename = std::path::PathBuf::from(url);
-                    let filename = filename
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy();
-
-                    save_current_wallpaper(path, &filename)?;
+                    save_current_wallpaper(path, &url)?;
                 },
                 
                 TrayMessage::OpenCurrent => {
                     if let Some(ref current_url) = current_url {
                         let md5 = current_url
-                            .rsplit_once('/')
-                            .unwrap()
-                            .1
-                            .rsplit_once('.')
-                            .unwrap()
-                            .0;
+                            .file_stem()
+                            .ok_or_else(|| anyhow!("current_url has no stem!"))?
+                            .to_string_lossy();
                         
                         let url = format!("https://e621.net/posts?md5={md5}");
                         unsafe { ShellExecuteW(
@@ -254,10 +248,12 @@ async fn app() -> anyhow::Result<()> {
             }
         }
 
-        /* Read winapi events */
+        /* Read WinAPI messages */
         unsafe {
             let mut msg = MSG::default();
-            if PeekMessageA(std::ptr::addr_of_mut!(msg), HWND(0), 0, 0, PM_REMOVE).0 == 1 {
+            let addr = std::ptr::addr_of_mut!(msg);
+
+            if PeekMessageA(addr, HWND(0), 0, 0, PM_REMOVE).0 == 1 {
                 TranslateMessage(&msg);
                 DispatchMessageA(&msg);
             }
@@ -265,27 +261,27 @@ async fn app() -> anyhow::Result<()> {
     }
 }
 
-fn save_current_wallpaper(path: &str, name: &str) -> anyhow::Result<()> {
-    if path.is_empty() {
-        return Ok(());
-    }
-
+fn save_current_wallpaper(path: &str, name: &Path) -> anyhow::Result<()> {
     // TODO: Hack. Just pass name as a pathbuf
-    let ext = name.rsplit_once('.').unwrap().1;
+    let ext = name
+        .extension()
+        .ok_or_else(|| anyhow::anyhow!("No extension in passed file??"))?
+        .to_string_lossy();
 
-    let mut out = Vec::<u16>::with_capacity(2048);
-    out.append(&mut name.encode_utf16().collect::<Vec<u16>>());
-    out.push('\0' as u16);
-    let ptr = PWSTR::from_raw(out.as_mut_ptr());
+    // The pre-filled placeholder filename.
+    let mut placeholder = Vec::<u16>::with_capacity(2048);
+    placeholder.append(&mut name.to_string_lossy().encode_utf16().collect::<Vec<u16>>());
+    placeholder.push('\0' as u16);
+    let ptr = PWSTR::from_raw(placeholder.as_mut_ptr());
 
     let filter = HSTRING::from(format!("{} Files (*.{ext})\0*.{ext}\0",
         ext.to_uppercase()));
-    let pcw = PCWSTR::from_raw(filter.as_ptr());
+    let filter = PCWSTR::from_raw(filter.as_ptr());
 
     let mut cfg = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
         lpstrFile: ptr,
-        lpstrFilter: pcw,
+        lpstrFilter: filter,
         nMaxFile: 1024,
         Flags: OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
         ..Default::default()
@@ -295,7 +291,8 @@ fn save_current_wallpaper(path: &str, name: &str) -> anyhow::Result<()> {
         let save_to = unsafe { cfg.lpstrFile.to_string()? };
         debug!("Saving current wallpaper to: {save_to}");
 
-        let _ = std::fs::copy(path, save_to);
+        // Result ignored; no need to crash and burn if this fails.
+        _ = std::fs::copy(path, save_to);
     } else {
         let err = unsafe {
             windows::Win32::UI::Controls::Dialogs::CommDlgExtendedError()
@@ -310,14 +307,15 @@ fn save_current_wallpaper(path: &str, name: &str) -> anyhow::Result<()> {
 /// Saves the file at url to the disk in a cache directory, returning its path.
 async fn save_file(url: &str) -> anyhow::Result<std::path::PathBuf> {
     let base_dirs = directories::BaseDirs::new().unwrap();
+    let out_dir = base_dirs.cache_dir().join("wallpaper-engine");
 
-    let ext = std::path::Path::new(&url).extension().unwrap();
-    let out_dir = base_dirs
-        .cache_dir()
-        .join("wallpaper-engine");
+    let ext = Path::new(url)
+        .extension()
+        .ok_or_else(|| anyhow!("URL has no extension part"))?;
+
     let out_path = out_dir.join("out").with_extension(ext);
 
-    let _ = std::fs::create_dir_all(out_dir);
+    std::fs::create_dir_all(out_dir)?;
     let mut out_file = std::fs::File::create(&out_path)?;
     let media_stream = reqwest::get(url).await?;
     let mut content = std::io::Cursor::new(media_stream.bytes().await?);
