@@ -18,6 +18,8 @@ tray-item = { git = "https://github.com/olback/tray-item-rs" }
 vlc-rs = { git = "https://code.videolan.org/videolan/vlc-rs" }
 winrt-notification = "0.5.1"
 rand = "0.8.5"
+log = "0.4.20"
+simplelog = "0.12.1"
 
 [dependencies.tokio]
 version = "1.35.1"

@@ -1,4 +1,4 @@
-use vlc::{Instance, Media, MediaPlayer, MediaPlayerVideoEx};
+use vlc::{Instance, Media, MediaPlayer, MediaPlayerVideoEx, MediaPlayerAudioEx};
 use windows::Win32::{Foundation::{HWND, RECT}, UI::{Shell::DWPOS_STRETCH, WindowsAndMessaging::GetWindowRect}};
 
 pub struct Video {
@@ -25,9 +25,14 @@ impl Video {
             media_players: Vec::new(),
         };
 
-        for hwnd in hwnds {
+        for (idx, hwnd) in hwnds.iter().enumerate() {
             let media_player = MediaPlayer::new(&s.instance).unwrap();
             media_player.set_hwnd(hwnd.0 as *mut std::ffi::c_void);
+
+            // Only let one instance play audio
+            if idx != 0 {
+                media_player.set_volume(0).unwrap();
+            }
 
             s.media_players.push(media_player);
         }

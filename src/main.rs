@@ -17,7 +17,12 @@ use tokio_tungstenite::{
 };
 use winrt_notification::{Toast, IconCrop};
 use tray_item::{IconSource, TrayItem};
-use futures_util::{StreamExt, SinkExt, stream::SplitSink, TryStreamExt, poll};
+use log::{info, warn, debug};
+use futures_util::{StreamExt, SinkExt, stream::SplitSink, poll};
+use simplelog::{
+    CombinedLogger, LevelFilter, ColorChoice, TermLogger,
+    WriteLogger, Config, TerminalMode
+};
 use windows::{
     core::{s, w, PCSTR, HSTRING, PWSTR, PCWSTR},
     Win32::{
@@ -49,8 +54,6 @@ enum TrayMessage {
     SaveCurrent,
 }
 
-// type Writer = Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let instance = single_instance::SingleInstance::new("walltaker-engine")?;
@@ -58,6 +61,13 @@ async fn main() -> anyhow::Result<()> {
         popup("Walltaker Engine is already running.");
         return Ok(());
     }
+
+    CombinedLogger::init(vec![
+        TermLogger::new(LevelFilter::Debug, Config::default(),
+            TerminalMode::Mixed, ColorChoice::Auto),
+        WriteLogger::new(LevelFilter::Debug, Config::default(),
+            std::fs::File::create("walltaker-engine.log")?),
+    ])?;
 
     match app().await {
         Ok(()) => { },
@@ -86,10 +96,10 @@ macro_rules! tray_items {
 
 async fn app() -> anyhow::Result<()> {
     let settings = Arc::new(RwLock::new(settings::Settings::load_or_new()));
-    println!("Loaded settings: {settings:?}");
+    info!("Loaded settings: {settings:?}");
 
     let bg_hwnds = unsafe { find_hwnds()? };
-    println!("WorkerW HWNDs: {bg_hwnds:?}");
+    info!("WorkerW HWNDs: {bg_hwnds:?}");
     let wallpaper = Arc::new(Mutex::new(wallpaper::Wallpaper::new(&bg_hwnds)?));
 
     /* Set up websocket */
@@ -130,17 +140,17 @@ async fn app() -> anyhow::Result<()> {
             use walltaker::Incoming;
 
             let msg = message?.to_string();
-            println!("Raw msg: {msg}");
+            debug!("Raw msg: {msg}");
 
             match serde_json::from_str(&msg)? {
                 Incoming::Ping { .. } => { },
 
                 Incoming::ConfirmSubscription { identifier } => {
-                    println!("Successfully subscribed to {identifier}");
+                    info!("Successfully subscribed to {identifier}");
                 },
 
                 Incoming::Welcome => {
-                    println!("Computer says hi");
+                    info!("Connected to Walltaker");
 
                     let subscribed = &settings.read().await.subscribed;
                     for link in subscribed {
@@ -149,23 +159,27 @@ async fn app() -> anyhow::Result<()> {
                             .await
                             .send(tungstenite::Message::text(msg))
                             .await?;
-                        println!("Requested subscription to {link}");
+                        info!("Requested subscription to {link}");
                     }
 
                     /* If at least one ID is already set in the config file,
                      * immediately request the latest set wallpaper
                      * so we can change it immediately to start. */
                     if let Some(id) = settings.read().await.subscribed.last() {
+                        info!("Refreshing {id} for initial wallpaper");
                         let msg = walltaker::check_message(*id)?;
-                        let write = Arc::clone(&write);
 
-                        tokio::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(4000)).await;
-                            let _ = write.lock()
-                                .await
-                                .send(tungstenite::Message::text(&msg))
-                                .await;
-                        });
+                        tokio::time::sleep(std::time::Duration::from_millis(4000)).await;
+                        write.lock()
+                            .await
+                            .send(tungstenite::Message::text(&msg))
+                            .await?;
+
+                        let msg = walltaker::announce_message(*id)?;
+                        write.lock()
+                            .await
+                            .send(tungstenite::Message::text(msg))
+                            .await?;
                     }
                 },
 
@@ -210,7 +224,7 @@ async fn app() -> anyhow::Result<()> {
                     if let Some(id) = id {
                         let msg = walltaker::check_message(*id)?;
                     
-                        println!("Refreshing ID {id}");
+                        info!("Refreshing ID {id}");
                         write.lock()
                             .await
                             .send(tungstenite::Message::text(&msg))
@@ -220,8 +234,20 @@ async fn app() -> anyhow::Result<()> {
     
                 TrayMessage::SaveCurrent => {
                     let lock = wallpaper.lock().await;
-                    let cur = lock.current_media();
-                    save_current_wallpaper(cur)?;
+                    let path = lock.current_media();
+
+                    if path.is_empty() || current_url.is_none() {
+                        continue;
+                    }
+                    let url = current_url.clone().unwrap();
+
+                    let filename = std::path::PathBuf::from(url);
+                    let filename = filename
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy();
+
+                    save_current_wallpaper(path, &filename)?;
                 },
                 
                 TrayMessage::OpenCurrent => {
@@ -268,17 +294,16 @@ async fn app() -> anyhow::Result<()> {
     }
 }
 
-fn save_current_wallpaper(current_file: &str) -> anyhow::Result<()> {
-    if current_file.is_empty() {
+fn save_current_wallpaper(path: &str, name: &str) -> anyhow::Result<()> {
+    if path.is_empty() {
         return Ok(());
     }
 
-    let current_file = std::path::PathBuf::from(current_file);
-    let ext = current_file.extension().unwrap().to_string_lossy();
-    let placeholder = format!("wallpaper.{ext}");
+    // TODO: Hack. Just pass name as a pathbuf
+    let ext = name.rsplit_once('.').unwrap().1;
 
-    let mut out = Vec::<u16>::with_capacity(1024);
-    out.append(&mut placeholder.encode_utf16().collect::<Vec<u16>>());
+    let mut out = Vec::<u16>::with_capacity(2048);
+    out.append(&mut name.encode_utf16().collect::<Vec<u16>>());
     out.push('\0' as u16);
     let ptr = PWSTR::from_raw(out.as_mut_ptr());
 
@@ -297,15 +322,15 @@ fn save_current_wallpaper(current_file: &str) -> anyhow::Result<()> {
 
     if (unsafe { GetSaveFileNameW(std::ptr::addr_of_mut!(cfg)).0 } == 1) {
         let save_to = unsafe { cfg.lpstrFile.to_string()? };
-        println!("Out: {save_to}");
+        debug!("Saving current wallpaper to: {save_to}");
 
-        let _ = std::fs::copy(current_file, save_to);
+        let _ = std::fs::copy(path, save_to);
     } else {
         let err = unsafe {
             windows::Win32::UI::Controls::Dialogs::CommDlgExtendedError()
         };
 
-        println!("Couldn't save file: {err:?}");
+        warn!("Couldn't save file: {err:?}");
     }
 
     Ok(())
@@ -361,7 +386,7 @@ async fn spawn_settings(
     *settings = new.clone();
     settings.save().unwrap();
 
-    println!("Config saved");
+    debug!("Config saved");
 }
 
 /// Saves the file at url to the disk in a cache directory, returning its path.
@@ -566,7 +591,7 @@ unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {
     EnumWindows(Some(enum_windows_proc),
         LPARAM(std::ptr::addr_of_mut!(workerw_hwnd) as isize))?;
     anyhow::ensure!(workerw_hwnd.0 != 0, "Couldn't find WorkerW");
-    println!("WorkerW HWND: 0x{:x}", workerw_hwnd.0);
+    info!("WorkerW HWND: 0x{:x}", workerw_hwnd.0);
 
     let class = WNDCLASSA {
         style: WNDCLASS_STYLES(0),
@@ -634,7 +659,7 @@ unsafe extern "system" fn enum_monitors_proc(
     let width = right - x;
     let height = bottom - y;
 
-    println!("Creating window at {x}:{y} size {width}:{height}");
+    info!("Creating window at {x}:{y} size {width}:{height}");
 
     let next_hwnd = CreateWindowExA(
         WS_EX_NOACTIVATE,

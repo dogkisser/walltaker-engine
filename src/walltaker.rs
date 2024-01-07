@@ -1,5 +1,7 @@
 use serde::{Serialize, Deserialize};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Incoming {
@@ -25,6 +27,11 @@ pub struct WallpaperUpdate {
 pub enum Outgoing {
     #[serde(rename = "subscribe")]
     Subscribe { identifier: String, },
+    #[serde(rename = "message")]
+    Announce {
+        data: String,
+        identifier: String,
+    },
     #[serde(untagged)]
     Check {
         data: String,
@@ -39,13 +46,19 @@ struct Action {
 }
 
 #[derive(Serialize)]
+struct AnnounceData {
+    client: String,
+    action: String,
+}
+
+#[derive(Serialize)]
 pub struct Identifier {
     pub channel: String,
     pub id: usize,
 }
 
-pub fn subscribe_message(to: usize) -> anyhow::Result<String> {
-    let inner = Identifier { channel: String::from("LinkChannel"), id: to };
+pub fn subscribe_message(id: usize) -> anyhow::Result<String> {
+    let inner = Identifier { channel: String::from("LinkChannel"), id };
     let inner = serde_json::to_string(&inner)?;
 
     let msg = Outgoing::Subscribe { identifier: inner };
@@ -63,6 +76,20 @@ pub fn check_message(id: usize) -> anyhow::Result<String> {
         data,
         identifier: inner,
         command: String::from("message")
+    };
+
+    Ok(serde_json::to_string(&msg)?)
+}
+
+pub fn announce_message(id: usize) -> anyhow::Result<String> {
+    let inner = Identifier { channel: String::from("LinkChannel"), id };
+    let data = AnnounceData {
+        client: format!("WalltakerEngine-chewtoy/{VERSION}"),
+        action: String::from("announce_client"),
+    };
+    let msg = Outgoing::Announce {
+        identifier: serde_json::to_string(&inner)?,
+        data: serde_json::to_string(&data)?,
     };
 
     Ok(serde_json::to_string(&msg)?)
