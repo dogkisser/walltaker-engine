@@ -16,6 +16,7 @@ serde_json = { version = "1.0.108", features = ["raw_value"] }
 tokio-tungstenite = { version =  "0.21.0", features = [ "native-tls" ] }
 tray-item = { git = "https://github.com/olback/tray-item-rs" }
 vlc-rs = { git = "https://code.videolan.org/videolan/vlc-rs" }
+# Maybe just do this manually with winapi
 winrt-notification = "0.5.1"
 rand = "0.8.5"
 log = "0.4.20"

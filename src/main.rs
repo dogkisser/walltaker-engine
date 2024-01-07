@@ -15,7 +15,6 @@ use tokio_tungstenite::{
     tungstenite::Message,
     WebSocketStream, MaybeTlsStream,
 };
-use winrt_notification::{Toast, IconCrop};
 use tray_item::{IconSource, TrayItem};
 use log::{info, warn, debug};
 use futures_util::{StreamExt, stream::SplitSink, poll};
@@ -24,17 +23,15 @@ use simplelog::{
     WriteLogger, Config, TerminalMode
 };
 use windows::{
-    core::{s, w, HSTRING, PWSTR, PCWSTR},
+    core::{w, HSTRING, PWSTR, PCWSTR},
     Win32::{
         Foundation::*,
         UI::{
             WindowsAndMessaging::*,
-            Controls::{
-                IsDlgButtonChecked, BST_CHECKED, EM_SETCUEBANNER,
-                Dialogs::{
-                    OFN_EXPLORER, OPENFILENAMEW, GetSaveFileNameW,
-                    OFN_PATHMUSTEXIST, OFN_HIDEREADONLY,
-                }},
+            Controls::Dialogs::{
+                OFN_EXPLORER, OPENFILENAMEW, GetSaveFileNameW,
+                OFN_PATHMUSTEXIST, OFN_HIDEREADONLY,
+            },
             Shell::*,
         },
     },
@@ -42,44 +39,17 @@ use windows::{
 
 mod wallpaper;
 mod walltaker;
+mod gui;
 mod settings;
 mod hwnd;
 
 type Writer = Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
-
 enum TrayMessage {
     Quit,
     Settings,
     Refresh,
     OpenCurrent,
     SaveCurrent,
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let instance = single_instance::SingleInstance::new("walltaker-engine")?;
-    if !instance.is_single() {
-        popup("Walltaker Engine is already running.");
-        return Ok(());
-    }
-
-    CombinedLogger::init(vec![
-        TermLogger::new(LevelFilter::Debug, Config::default(),
-            TerminalMode::Mixed, ColorChoice::Auto),
-        WriteLogger::new(LevelFilter::Debug, Config::default(),
-            std::fs::File::create("walltaker-engine.log")?),
-    ])?;
-
-    match app().await {
-        Ok(()) => { },
-        Err(e) => popup(&e
-            .chain()
-            .map(ToString::to_string)
-            .collect::<Vec<String>>()
-            .join("; ")),
-    }
-
-    Ok(())
 }
 
 // TODO: Expanding this to support separators would be great but this is already
@@ -93,6 +63,33 @@ macro_rules! tray_items {
             })?;
         )*
     };
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let instance = single_instance::SingleInstance::new("walltaker-engine")?;
+    if !instance.is_single() {
+        gui::popup("Walltaker Engine is already running.");
+        return Ok(());
+    }
+
+    CombinedLogger::init(vec![
+        TermLogger::new(LevelFilter::Debug, Config::default(),
+            TerminalMode::Mixed, ColorChoice::Auto),
+        WriteLogger::new(LevelFilter::Debug, Config::default(),
+            std::fs::File::create("walltaker-engine.log")?),
+    ])?;
+
+    match app().await {
+        Ok(()) => { },
+        Err(e) => gui::popup(&e
+            .chain()
+            .map(ToString::to_string)
+            .collect::<Vec<String>>()
+            .join("; ")),
+    }
+
+    Ok(())
 }
 
 async fn app() -> anyhow::Result<()> {
@@ -125,11 +122,10 @@ async fn app() -> anyhow::Result<()> {
     tray_items![tx, tray, "Quit", TrayMessage::Quit;];
 
     if settings.read().await.notifications {
-        Toast::new(Toast::POWERSHELL_APP_ID)
-            .title("Walltaker Engine")
-            .text1("Walltaker Engine is now running. You can find it in the system tray.")
-            .show()
-            .unwrap();
+        gui::notification(
+            "Walltaker Engine is now running. You can find it in the system tray.",
+            None,
+        );
     }
 
     let mut current_url = None;
@@ -181,17 +177,11 @@ async fn app() -> anyhow::Result<()> {
                         .unwrap_or_else(|| String::from("Anonymous"));
                     
                     if settings.read().await.notifications {
-                        // A toast!
-                        Toast::new(Toast::POWERSHELL_APP_ID)
-                            .icon(std::path::Path::new(&out_path),
-                                IconCrop::Circular,
-                                "Walltaker Engine Icon")
-                            .title("Walltaker Engine")
-                            .text1(&format!(
-                                "{} changed your wallpaper via link {}! ❤️",
-                                set_by, message.id))
-                            .show()
-                            .unwrap();
+                        let text = format!("{} changed your wallpaper via link {}! ❤️",
+                            set_by, message.id);
+                        let icon = std::path::Path::new(&out_path);
+
+                        gui::notification(&text, Some(icon));
                     }
                 }
             }
@@ -259,7 +249,7 @@ async fn app() -> anyhow::Result<()> {
                     let write = Arc::clone(&write);
                     
                     let wallpaper = Arc::clone(&wallpaper);
-                    tokio::spawn(spawn_settings(c_settings, wallpaper, write));
+                    tokio::spawn(gui::spawn_settings(c_settings, wallpaper, write));
                 },
             }
         }
@@ -272,7 +262,6 @@ async fn app() -> anyhow::Result<()> {
                 DispatchMessageA(&msg);
             }
         }
-
     }
 }
 
@@ -318,55 +307,6 @@ fn save_current_wallpaper(path: &str, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn spawn_settings(
-    settings: Arc<RwLock<settings::Settings>>,
-    wallpaper: Arc<Mutex<wallpaper::Wallpaper>>,
-    write: Writer,
-) -> anyhow::Result<()> {
-    let new = {
-        let settings_reader = settings.read().await;
-        let new = {
-            let t: settings::Settings = (*settings_reader).clone();
-            let ptr = std::ptr::addr_of!(t) as isize;
-            unsafe {
-                DialogBoxParamW(
-                    HINSTANCE(0),
-                    w!("IDD_MAIN"),
-                    HWND(0),
-                    Some(subscriptions_proc),
-                    LPARAM(ptr))
-            }
-        };
-
-        let new: &settings::Settings = unsafe { &*(new as *const _) };
-
-        // This is theoretically really, really slow but these vecs will only
-        // ever contain like, 5 elements tops. So it doesn't really matter.
-        let added = new.subscribed.iter()
-            .filter(|i| !settings_reader.subscribed.contains(i));
-        let removed = settings_reader.subscribed.iter()
-            .filter(|i| !new.subscribed.contains(i));
-
-        // TODO: ability to unsubscribe
-        _ = removed;
-
-        for id in added {
-            walltaker::subscribe_to(&write, *id).await?;
-        }
-
-        let _ = wallpaper.lock().await.set_method(new.method);
-
-        new
-    };
-
-    let mut settings = settings.write().await;
-    *settings = new.clone();
-    settings.save()?;
-
-    debug!("Config saved");
-    Ok(())
-}
-
 /// Saves the file at url to the disk in a cache directory, returning its path.
 async fn save_file(url: &str) -> anyhow::Result<std::path::PathBuf> {
     let base_dirs = directories::BaseDirs::new().unwrap();
@@ -385,168 +325,4 @@ async fn save_file(url: &str) -> anyhow::Result<std::path::PathBuf> {
     std::io::copy(&mut content, &mut out_file)?;
 
     Ok(out_path)
-}
-
-unsafe extern "system" fn subscriptions_proc(
-    hwnd: HWND,
-    message: u32,
-    w_param: WPARAM,
-    settings: LPARAM
-) -> isize
-{
-    /* message, hiword, loword */
-    match (message, (w_param.0 >> 16 & 0xffff) as u32, (w_param.0 & 0xFFFF)) { 
-        (WM_INITDIALOG, _, _) => {
-            let settings: &settings::Settings = &*(settings.0 as *const _);
-
-            for i in &settings.subscribed {
-                let s = std::ffi::CString::new(i.to_string()).unwrap();
-                SendDlgItemMessageA(
-                    hwnd,
-                    1002,
-                    LB_ADDSTRING,
-                    WPARAM(0),
-                    LPARAM(s.as_ptr() as isize));  
-            }
-
-            let target = match DESKTOP_WALLPAPER_POSITION(settings.method) {
-                DWPOS_TILE    => 1006,
-                DWPOS_FILL    => 1007,
-                DWPOS_FIT     => 1008,
-                DWPOS_STRETCH => 1009,
-                _ => panic!("invalid settings.method"),
-            };
-            SendDlgItemMessageA(hwnd,
-                target,
-                BM_SETCHECK,
-                WPARAM(BST_CHECKED.0 as usize),
-                LPARAM(0));
-
-            let placeholder = w!("Walltaker ID");
-            SendDlgItemMessageA(hwnd,
-                1000,
-                EM_SETCUEBANNER,
-                WPARAM(1),
-                LPARAM(placeholder.as_ptr() as isize));
-
-            if settings.notifications {
-                SendDlgItemMessageA(hwnd,
-                    1010,
-                    BM_SETCHECK,
-                    WPARAM(BST_CHECKED.0 as usize),
-                    LPARAM(0));
-            }
-        },
-
-        /* IDC_ADD */
-        (WM_COMMAND, _, 1003) => {
-            let id = GetDlgItemInt(hwnd, 1000, None, false);
-
-            if id != 0 {
-                let s = std::ffi::CString::new(id.to_string()).unwrap();
-                SendDlgItemMessageA(hwnd,
-                    1002,
-                    LB_ADDSTRING,
-                    WPARAM(0),
-                    LPARAM(s.as_ptr() as isize));
-            }
-
-            let _ = SetDlgItemTextA(hwnd, 1000, s!(""));
-        },
-
-        /* IDC_REMOVE */
-        (WM_COMMAND, _, 1005) => {
-            let selected = SendDlgItemMessageA(hwnd,
-                1002,
-                LB_GETCURSEL,
-                WPARAM(0),
-                LPARAM(0)).0;
-
-            // Nothing selected
-            if selected == LB_ERR as isize {
-                return 1;
-            }
-
-            SendDlgItemMessageA(hwnd,
-                1002,
-                LB_DELETESTRING,
-                WPARAM(selected as usize),
-                LPARAM(0));
-        },
-
-        /* IDC_RADIO_* */
-        // (WM_COMMAND, _, x@1006..=1009) => {
-        //     // let method = match x {
-        //     //     1006 => DWPOS_TILE,
-        //     //     1007 => DWPOS_FILL,
-        //     //     1008 => DWPOS_FIT,
-        //     //     1009 => DWPOS_STRETCH,
-        //     //     _ => unreachable!(),
-        //     // };
-        // },
-
-        /* IDC_NOTIFICATIONS */
-        (WM_COMMAND, _, 1010) => { },
-
-        (WM_CLOSE, _, _) => {
-            let mut out: Box<settings::Settings> = Box::default();
-            let item_count = SendDlgItemMessageA(
-                hwnd,
-                1002,
-                LB_GETCOUNT,
-                WPARAM(0),
-                LPARAM(0)).0 as usize;
-    
-            for i in 0..item_count {
-                let len = SendDlgItemMessageA(
-                    hwnd,
-                    1002,
-                    LB_GETTEXTLEN,
-                    WPARAM(i),
-                    LPARAM(0)).0 as usize;
-                let mut buf: Vec<u8> = Vec::with_capacity(len + 1);
-                let ptr = buf.as_mut_ptr() as isize;
-                
-                let read_in = SendDlgItemMessageA(
-                    hwnd,
-                    1002,
-                    LB_GETTEXT,
-                    WPARAM(i),
-                    LPARAM(ptr)).0 as usize;
-                buf.set_len(read_in);
-                let num = std::str::from_utf8(&buf).unwrap().parse().unwrap();
-
-                out.subscribed.push(num);
-            }
-
-            for (button_id, value) in [1006 , 1007 , 1008 , 1009 ].iter().zip(
-                                      [DWPOS_TILE, DWPOS_FILL,
-                                       DWPOS_FIT, DWPOS_STRETCH])
-            {
-                if IsDlgButtonChecked(hwnd, *button_id) == 1 {
-                    out.method = value.0;
-                }
-            }
-
-            out.notifications = IsDlgButtonChecked(hwnd, 1010) == 1;
-            
-            EndDialog(hwnd, Box::leak(out) as *const _ as isize).unwrap();
-        },
-
-        _ => {
-            return 0;
-        },
-    }
-    
-    1
-}
-
-fn popup(saying: &str) {
-    unsafe {
-        MessageBoxW(
-            HWND(0),
-            &HSTRING::from(saying),
-            w!("Walltaker Engine Error"),
-            MB_OK | MB_ICONERROR);
-        }
 }
