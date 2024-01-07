@@ -11,7 +11,7 @@ use windows::{
     },
 };
 
-/// This function creates a HWND between the wallpaper and desktop icons
+/// This function creates a window between the wallpaper and desktop icons
 /// for each monitor. Based on this:
 /// <https://www.codeproject.com/Articles/856020/Draw-Behind-Desktop-Icons-in-Windows-plus>
 pub unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {

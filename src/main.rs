@@ -7,10 +7,8 @@
     clippy::too_many_lines,
     clippy::wildcard_imports,
 )]
-use std::{sync::Arc, path::Path};
-use std::task::Poll::Ready;
+use std::{task::Poll::Ready, sync::Arc, path::{Path, PathBuf}};
 use anyhow::anyhow;
-use std::path::PathBuf;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
 use rand::seq::SliceRandom;
 use tokio_tungstenite::{
@@ -30,11 +28,7 @@ use windows::{
         Foundation::*,
         UI::{
             WindowsAndMessaging::*,
-            Controls::Dialogs::{
-                OFN_EXPLORER, OPENFILENAMEW, GetSaveFileNameW,
-                OFN_PATHMUSTEXIST, OFN_HIDEREADONLY,
-            },
-            Shell::*,
+            Controls::Dialogs::*,
         },
     },
 };
@@ -46,6 +40,7 @@ mod settings;
 mod hwnd;
 
 type Writer = Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
+
 enum TrayMessage {
     Quit,
     Settings,
@@ -170,15 +165,16 @@ async fn app() -> anyhow::Result<()> {
                 },
 
                 Incoming::Message { message, .. } => {
-                    let out_path = save_file(&message.post_url).await?;
-                    wallpaper.lock().await.set(&out_path, settings.read().await.method)?;
-
                     current_url = Some(PathBuf::from(&message.post_url));
+                    let settings = settings.read().await;
 
-                    let set_by = message.set_by
-                        .unwrap_or_else(|| String::from("Anonymous"));
+                    let out_path = save_file(&message.post_url).await?;
+                    wallpaper.lock().await.set(&out_path, settings.method)?;
                     
-                    if settings.read().await.notifications {
+                    if settings.notifications {
+                        let set_by = message.set_by
+                            .unwrap_or_else(|| String::from("Anonymous"));
+
                         let text = format!("{} changed your wallpaper via link {}! ❤️",
                             set_by, message.id);
                         let icon = std::path::Path::new(&out_path);
@@ -227,14 +223,7 @@ async fn app() -> anyhow::Result<()> {
                             .to_string_lossy();
                         
                         let url = format!("https://e621.net/posts?md5={md5}");
-                        unsafe { ShellExecuteW(
-                            HWND(0),
-                            PCWSTR::null(),
-                            &HSTRING::from(url),
-                            PCWSTR::null(),
-                            PCWSTR::null(),
-                            SW_SHOW)
-                        };
+                        gui::open(&url);
                     }
                 },
     

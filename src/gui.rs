@@ -2,8 +2,9 @@ use crate::settings::Settings;
 use std::sync::Arc;
 use log::debug;
 use tokio::sync::{RwLock, Mutex};
+use winrt_notification::{Toast, IconCrop};
 use windows::{
-    core::{s, w, HSTRING},
+    core::{s, w, HSTRING, PCWSTR},
     Win32::{
         Foundation::*,
         UI::{
@@ -15,7 +16,6 @@ use windows::{
         },
     },
 };
-use winrt_notification::{Toast, IconCrop};
 
 pub async fn spawn_settings(
     settings: Arc<RwLock<Settings>>,
@@ -233,4 +233,18 @@ pub fn popup(saying: &str) {
             w!("Walltaker Engine Error"),
             MB_OK | MB_ICONERROR);
         }
+}
+
+/// Open a path, probably a URL.
+pub fn open(url: &str) {
+    unsafe {
+        ShellExecuteW(
+            HWND(0),
+            PCWSTR::null(),
+            &HSTRING::from(url),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOW
+        )
+    };
 }
