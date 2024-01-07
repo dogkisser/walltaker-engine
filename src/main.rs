@@ -8,6 +8,7 @@
     clippy::wildcard_imports,
 )]
 use std::sync::Arc;
+use std::task::Poll::Ready;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
 use rand::seq::SliceRandom;
 use tokio_tungstenite::{
@@ -16,7 +17,7 @@ use tokio_tungstenite::{
 };
 use winrt_notification::{Toast, IconCrop};
 use tray_item::{IconSource, TrayItem};
-use futures_util::{StreamExt, SinkExt, stream::SplitSink};
+use futures_util::{StreamExt, SinkExt, stream::SplitSink, TryStreamExt, poll};
 use windows::{
     core::{s, w, PCSTR, HSTRING, PWSTR, PCWSTR},
     Win32::{
@@ -125,7 +126,7 @@ async fn app() -> anyhow::Result<()> {
     /* Event loop */
     loop {
         /* Read Walltaker websocket messages */
-        if let Some(message) = read.next().await {
+        if let Ready(Some(message)) = poll!(read.next()) {
             use walltaker::Incoming;
 
             let msg = message?.to_string();
@@ -560,7 +561,7 @@ unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {
         SMTO_NORMAL,
         1000,
         None);
-    
+
     let mut workerw_hwnd = HWND(0);
     EnumWindows(Some(enum_windows_proc),
         LPARAM(std::ptr::addr_of_mut!(workerw_hwnd) as isize))?;
