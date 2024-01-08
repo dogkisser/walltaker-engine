@@ -24,8 +24,13 @@ pub unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {
     SendMessageTimeoutA(
         progman,
         0x052C,
-        WPARAM(0),
-        LPARAM(0),
+        // Further undocumented parameters I found documented in one place on a
+        // programming forum linking to a website that no longer exists.
+        // Setting WPARAM and LPARAM like so somehow bypasses having to disable
+        // high contrast mode or enable window animations.
+        // So thanks Kristjan Skutta.
+        WPARAM(0xD),
+        LPARAM(0x1),
         SMTO_NORMAL,
         1000,
         None);

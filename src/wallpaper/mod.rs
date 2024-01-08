@@ -6,10 +6,10 @@ use windows::{
             COINIT_MULTITHREADED, CLSCTX_ALL,
             CoInitializeEx, CoCreateInstance
         },
-        UI::Shell::{
+        UI::{Shell::{
             DESKTOP_WALLPAPER_POSITION,
             IDesktopWallpaper, DesktopWallpaper
-        }, Foundation::HWND,
+        }, WindowsAndMessaging::{SystemParametersInfoA, SPI_SETCLIENTAREAANIMATION, SPIF_SENDCHANGE}}, Foundation::HWND,
     },
 };
 
