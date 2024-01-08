@@ -1565,7 +1565,7 @@ dependencies = [
 
 [[package]]
 name = "walltaker-engine"
-version = "0.1.234"
+version = "0.1.314"
 dependencies = [
  "anyhow",
  "directories",
