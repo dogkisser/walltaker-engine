@@ -7,7 +7,7 @@
     clippy::too_many_lines,
     clippy::wildcard_imports,
 )]
-use std::{task::Poll::Ready, sync::Arc, path::{Path, PathBuf}};
+use std::{task::Poll::Ready, sync::Arc, path::{Path, PathBuf}, io::Write};
 use anyhow::anyhow;
 use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
 use rand::seq::SliceRandom;
@@ -164,13 +164,14 @@ async fn app() -> anyhow::Result<()> {
                     }
                 },
 
+                // Wallpaper change
                 Incoming::Message { message, .. } => {
                     current_url = Some(PathBuf::from(&message.post_url));
                     let settings = settings.read().await;
 
                     let out_path = save_file(&message.post_url).await?;
                     wallpaper.lock().await.set(&out_path, settings.method)?;
-                    
+
                     if settings.notifications {
                         let set_by = message.set_by
                             .unwrap_or_else(|| String::from("Anonymous"));
@@ -310,6 +311,9 @@ async fn save_file(url: &str) -> anyhow::Result<std::path::PathBuf> {
     let mut content = std::io::Cursor::new(media_stream.bytes().await?);
 
     std::io::copy(&mut content, &mut out_file)?;
+    // I think VLC can sometimes start reading a video before the file has been
+    // entirely written to disk, which causes it to implode.
+    out_file.flush()?;
 
     Ok(out_path)
 }
