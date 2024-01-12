@@ -1,56 +1,107 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![warn(clippy::pedantic, clippy::style)]
-// Clippy clearly hasn't met WinAPI
-#![allow(
-    clippy::cast_sign_loss,
-    clippy::cast_possible_truncation,
-    clippy::too_many_lines,
-    clippy::wildcard_imports,
-)]
-use std::{task::Poll::Ready, sync::Arc, path::{Path, PathBuf}, io::Write};
-use anyhow::anyhow;
-use tokio::{sync::{RwLock, Mutex}, net::TcpStream};
-use rand::seq::SliceRandom;
-use tokio_tungstenite::{
-    tungstenite::Message,
-    WebSocketStream, MaybeTlsStream,
-};
+use std::fs::File;
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::{path::PathBuf, sync::Arc};
+use std::time::Duration;
+use std::task::Poll::Ready;
+use std::io::Write;
+use anyhow::{Result, Context};
+use futures_util::{stream::SplitSink, poll, StreamExt};
+use log::info;
+use serde::{Serialize, Deserialize};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use tray_item::{IconSource, TrayItem};
-use log::{info, warn, debug};
-use futures_util::{StreamExt, stream::SplitSink, poll};
 use simplelog::{
     CombinedLogger, LevelFilter, ColorChoice, TermLogger,
-    WriteLogger, Config, TerminalMode
+    WriteLogger, TerminalMode
 };
-use windows::{
-    core::{HSTRING, PWSTR, PCWSTR},
-    Win32::{
-        Foundation::*,
-        UI::{
-            WindowsAndMessaging::*,
-            Controls::Dialogs::*,
-        },
-    },
-};
+use rand::prelude::*;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
+use windows::core::{PCWSTR, HSTRING};
 
-mod wallpaper;
-mod walltaker;
-mod gui;
-mod settings;
 mod hwnd;
+mod webview;
+mod walltaker;
 
-type Writer = Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
+type Writer = Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+struct Config {
+    links: Vec<usize>,
+    log: bool,
+}
+
+const SETTINGS_HTML: &str = include_str!("../res/settings.html");
+
+const HTML: &str = r#"
+    <!doctype html>
+    <html>
+        <body>
+            <img id="image"></img>
+            <video id="video" autoplay preload>
+            </video>
+        </body>
+    </html>
+
+    <script>
+window.onload = () => {
+    document.getElementById('video').addEventListener('loadeddata', () => {
+        document.getElementById('video').style.display = 'block';
+        document.getElementById('image').style.display = 'none';
+    }, false);
+
+    document.getElementById('image').onload = () => {
+        document.getElementById('video').style.display = 'none';
+        document.getElementById('image').style.display = 'block';
+    };
+};
+    </script>
+
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            padding: 0;
+            margin: 0;
+
+            background-color: black;
+        }
+
+        #video {
+            display: none;
+            min-width: 100%; 
+            min-height: 100%; 
+            height: 100%;
+            width: auto;
+
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%,-50%);
+        }
+
+        #image {
+            display: none;
+            max-width: 100%;
+            max-height: 100%;
+            height: 100%;
+            margin: auto;
+        }
+    </style>
+"#;
 
 enum TrayMessage {
     Quit,
     Settings,
     Refresh,
     OpenCurrent,
-    SaveCurrent,
 }
 
-// TODO: Expanding this to support separators would be great but this is already
-// an improvement.
 macro_rules! tray_items {
     ($tx:ident, $tray:ident, $($text:literal, $variant:expr;)+) => {
         $(
@@ -63,54 +114,37 @@ macro_rules! tray_items {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let instance = single_instance::SingleInstance::new("walltaker-engine")?;
-    if !instance.is_single() {
-        gui::popup("Walltaker Engine is already running.");
-        return Ok(());
+async fn main() -> Result<()> {
+    let config_path = "./walltaker-engine.json";
+
+    let config: Config = serde_json::from_reader(File::open(&config_path)?)?;
+    let config: Rc<Mutex<Config>> = Mutex::new(config).into();
+
+    if config.lock().unwrap().log {
+        CombinedLogger::init(vec![
+            TermLogger::new(LevelFilter::Debug, simplelog::Config::default(),
+                TerminalMode::Mixed, ColorChoice::Auto),
+            WriteLogger::new(LevelFilter::Debug, simplelog::Config::default(),
+                std::fs::File::create("walltaker-engine.log")?),
+        ])?;
+    } else {
+        TermLogger::init(LevelFilter::Debug, simplelog::Config::default(),
+            TerminalMode::Mixed, ColorChoice::Auto)?;
     }
 
-    CombinedLogger::init(vec![
-        TermLogger::new(LevelFilter::Debug, Config::default(),
-            TerminalMode::Mixed, ColorChoice::Auto),
-        WriteLogger::new(LevelFilter::Debug, Config::default(),
-            std::fs::File::create("walltaker-engine.log")?),
-    ])?;
+    info!("Parsed config: {config:#?}");
 
-    match app().await {
-        Ok(()) => { },
-        Err(e) => gui::popup(&e
-            .chain()
-            .map(ToString::to_string)
-            .collect::<Vec<String>>()
-            .join("; ")),
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED)?;
     }
+    let hwnds = unsafe { hwnd::find_hwnds() }?;
+    let hwnd = hwnds[0];
 
-    Ok(())
-}
-
-async fn app() -> anyhow::Result<()> {
-    let settings = Arc::new(RwLock::new(settings::Settings::load_or_new()));
-    info!("Loaded settings: {settings:#?}");
-
-    let bg_hwnds = unsafe { hwnd::find_hwnds()? };
-    info!("WorkerW HWNDs: {bg_hwnds:#X?}");
-    let wallpaper = Arc::new(Mutex::new(wallpaper::Wallpaper::new(&bg_hwnds)?));
-
-    /* Set up websocket */
-    let (ws_stream, _) = tokio_tungstenite::connect_async(
-        "wss://walltaker.joi.how/cable").await?;
-    let (write, mut read) = ws_stream.split();
-    let write = Arc::new(Mutex::new(write));
-
-    /* Set up system tray */
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     let mut tray = TrayItem::new("Walltaker Engine",
                         IconSource::Resource("tray-icon"))?;
-
     tray_items![tx, tray,
         "Open Current", TrayMessage::OpenCurrent;
-        "Save Current", TrayMessage::SaveCurrent;
         "Refresh",      TrayMessage::Refresh;
     ];
     tray.inner_mut().add_separator()?;
@@ -118,23 +152,63 @@ async fn app() -> anyhow::Result<()> {
     tray.inner_mut().add_separator()?;
     tray_items![tx, tray, "Quit", TrayMessage::Quit;];
 
-    if settings.read().await.notifications {
-        gui::notification(
-            "Walltaker Engine is now running. You can find it in the system tray.",
-            None,
-        );
-    }
+    let (ws_stream, _) = tokio_tungstenite::connect_async(
+        "wss://walltaker.joi.how/cable").await?;
+    let (write, mut read) = ws_stream.split();
+    let write = Arc::new(tokio::sync::Mutex::new(write));
+
+    let webview = webview::WebView::create(Some(hwnd), false)?;
+    webview.navigate_html(HTML)?;
+
+    let settings = webview::WebView::create(None, true)?;
+    let _config = std::rc::Rc::clone(&config);
+    let _write = Arc::clone(&write);
+    settings.bind("saveSettings", move |request| {
+        if let Some(new_cfg) = request.get(0) {
+            let new_settings: Config = serde_json::from_value(new_cfg.clone())?;
+            let mut config = _config.lock().unwrap();
+            
+            // This is theoretically really, really slow but these vecs will only
+            // ever contain like, 5 elements tops. So it doesn't really matter.
+            let added = new_settings.links.iter()
+                .filter(|i| !config.links.contains(i));
+            let removed = config.links.iter()
+                .filter(|i| !new_settings.links.contains(i));
+            // TODO: support live unsubscribing
+
+            for link in added {
+                let link = *link;
+                let _write = Arc::clone(&_write);
+                tokio::spawn(async move {
+                    let _ = walltaker::subscribe_to(&_write, link).await;
+                });
+            }
+
+            log::info!("Settings updated {new_settings:#?}");
+
+            *config = new_settings;
+            return Ok(serde_json::Value::String(String::from("ok")));
+        }
+
+        Err(webview::Error::WebView2Error(
+            webview2_com::Error::CallbackError(String::from("Called wrong. wtf?"))))
+    })?;
+    let _config = std::rc::Rc::clone(&config);
+    settings.bind("loadSettings", move |request| {
+        let cfg = &*_config;
+        Ok(serde_json::to_value(cfg)?)
+    })?;
+    settings.navigate_html(SETTINGS_HTML)?;
+    settings.show();
 
     let mut current_url = None;
-
-    /* Event loop */
     loop {
         /* Read Walltaker websocket messages */
         if let Ready(Some(message)) = poll!(read.next()) {
             use walltaker::Incoming;
 
             let msg = message?.to_string();
-            match serde_json::from_str(&msg)? {
+            match serde_json::from_str(&msg).context(msg)? {
                 Incoming::Ping { .. } => { },
 
                 Incoming::ConfirmSubscription { identifier } => {
@@ -144,43 +218,34 @@ async fn app() -> anyhow::Result<()> {
                 Incoming::Welcome => {
                     info!("Connected to Walltaker");
 
-                    let subscribed = &settings.read().await.subscribed;
-                    for id in subscribed {
-                        info!("Requesting subscription to {id}");
-                        walltaker::subscribe_to(&write, *id).await?;
+                    for link in &config.lock().unwrap().links {
+                        walltaker::subscribe_to(&write, *link).await?;
                     }
 
-                    /* If at least one ID is already set in the config file,
-                     * immediately request the latest set wallpaper
-                     * so we can change it immediately to start. */
-                    if let Some(id) = settings.read().await.subscribed.last() {
-                        let id = *id;
-                        let write = Arc::clone(&write);
-                        info!("Refreshing {id} for initial wallpaper");
-
-                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                        walltaker::subscribe_to(&write, id).await.unwrap();
-                        walltaker::check(&write, id).await.unwrap();
+                    if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
+                        info!("Checking link {link} for initial wallpaper");
+                        // Not the best but it works and whatnot
+                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                        walltaker::check(&write, *link).await?;
                     }
                 },
-
                 // Wallpaper change
                 Incoming::Message { message, .. } => {
-                    current_url = Some(PathBuf::from(&message.post_url));
-                    let settings = settings.read().await;
+                    if let Some(url) = message.post_url {
+                        info!("Wallpaper changed to {url}");
+                        let url_path = PathBuf::from(&url);
+                        let ext = url_path.extension().unwrap().to_string_lossy().to_lowercase();
+                        current_url = Some(url_path);
 
-                    let out_path = save_file(&message.post_url).await?;
-                    wallpaper.lock().await.set(&out_path, settings.method)?;
-
-                    if settings.notifications {
-                        let set_by = message.set_by
-                            .unwrap_or_else(|| String::from("Anonymous"));
-
-                        let text = format!("{} changed your wallpaper via link {}! ❤️",
-                            set_by, message.id);
-                        let icon = std::path::Path::new(&out_path);
-
-                        gui::notification(&text, Some(icon));
+                        if ext == "webm" {
+                            webview.eval(&format!("
+                                document.getElementById('video').src = '{url}';
+                            "))?;
+                        } else {
+                            webview.eval(&format!("
+                                document.getElementById('image').src = '{url}';
+                            "))?;
+                        }
                     }
                 }
             }
@@ -190,130 +255,50 @@ async fn app() -> anyhow::Result<()> {
         if let Ok(message) = rx.try_recv() {
             match message {
                 TrayMessage::Quit => {
-                    wallpaper.lock().await.reset()?;
+                    let mut cfg = File::create(config_path)?;
+                    write!(cfg, "{}", serde_json::to_string(&*config.lock().unwrap())?)?;
+                    log::info!("settings saved");
                     std::process::exit(0);
                 },
     
                 TrayMessage::Refresh => {
-                    let lock = settings.read().await;
-                    let subscribed = &lock.subscribed;
-                    let id = subscribed.choose(&mut rand::thread_rng());
-    
-                    if let Some(id) = id {
-                        walltaker::check(&write, *id).await?;
+                    if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
+                        walltaker::check(&write, *link).await?;
                     }
-                },
-    
-                TrayMessage::SaveCurrent => {
-                    let lock = wallpaper.lock().await;
-                    let path = lock.current_media();
-                    if path.is_empty() || current_url.is_none() {
-                        continue;
-                    }
-
-                    let url = current_url.clone().unwrap();
-
-                    save_current_wallpaper(path, &url)?;
                 },
                 
                 TrayMessage::OpenCurrent => {
                     if let Some(ref current_url) = current_url {
                         let md5 = current_url
                             .file_stem()
-                            .ok_or_else(|| anyhow!("current_url has no stem!"))?
+                            .ok_or_else(|| anyhow::anyhow!("current_url has no stem!"))?
                             .to_string_lossy();
                         
                         let url = format!("https://e621.net/posts?md5={md5}");
-                        gui::open(&url);
+                        open(&url);
                     }
                 },
     
                 TrayMessage::Settings => {
-                    let c_settings = Arc::clone(&settings);
-                    let write = Arc::clone(&write);
-                    
-                    let wallpaper = Arc::clone(&wallpaper);
-                    tokio::spawn(gui::spawn_settings(c_settings, wallpaper, write));
+                    settings.show();
                 },
             }
         }
 
-        /* Read WinAPI messages */
-        unsafe {
-            let mut msg = MSG::default();
-            let addr = std::ptr::addr_of_mut!(msg);
-
-            if PeekMessageA(addr, HWND(0), 0, 0, PM_REMOVE).0 == 1 {
-                TranslateMessage(&msg);
-                DispatchMessageA(&msg);
-            }
-        }
+        webview.handle_messages()?;
+        settings.handle_messages()?;
     }
 }
 
-fn save_current_wallpaper(path: &str, name: &Path) -> anyhow::Result<()> {
-    // TODO: Hack. Just pass name as a pathbuf
-    let ext = name
-        .extension()
-        .ok_or_else(|| anyhow::anyhow!("No extension in passed file??"))?
-        .to_string_lossy();
-
-    // The pre-filled placeholder filename.
-    let mut placeholder = Vec::<u16>::with_capacity(2048);
-    placeholder.append(&mut name.to_string_lossy().encode_utf16().collect::<Vec<u16>>());
-    placeholder.push('\0' as u16);
-    let ptr = PWSTR::from_raw(placeholder.as_mut_ptr());
-
-    let filter = HSTRING::from(format!("{} Files (*.{ext})\0*.{ext}\0",
-        ext.to_uppercase()));
-    let filter = PCWSTR::from_raw(filter.as_ptr());
-
-    let mut cfg = OPENFILENAMEW {
-        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
-        lpstrFile: ptr,
-        lpstrFilter: filter,
-        nMaxFile: 1024,
-        Flags: OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
-        ..Default::default()
+pub fn open(url: &str) {
+    unsafe {
+        ShellExecuteW(
+            HWND(0),
+            PCWSTR::null(),
+            &HSTRING::from(url),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOW,
+        )
     };
-
-    if (unsafe { GetSaveFileNameW(std::ptr::addr_of_mut!(cfg)).0 } == 1) {
-        let save_to = unsafe { cfg.lpstrFile.to_string()? };
-        debug!("Saving current wallpaper to: {save_to}");
-
-        // Result ignored; no need to crash and burn if this fails.
-        _ = std::fs::copy(path, save_to);
-    } else {
-        let err = unsafe {
-            windows::Win32::UI::Controls::Dialogs::CommDlgExtendedError()
-        };
-
-        warn!("Couldn't save file: {err:?}");
-    }
-
-    Ok(())
-}
-
-/// Saves the file at url to the disk in a cache directory, returning its path.
-async fn save_file(url: &str) -> anyhow::Result<std::path::PathBuf> {
-    let base_dirs = directories::BaseDirs::new().unwrap();
-    let out_dir = base_dirs.cache_dir().join("wallpaper-engine");
-
-    let ext = Path::new(url)
-        .extension()
-        .ok_or_else(|| anyhow!("URL has no extension part"))?;
-
-    let out_path = out_dir.join("out").with_extension(ext);
-
-    std::fs::create_dir_all(out_dir)?;
-    let mut out_file = std::fs::File::create(&out_path)?;
-    let media_stream = reqwest::get(url).await?;
-    let mut content = std::io::Cursor::new(media_stream.bytes().await?);
-
-    std::io::copy(&mut content, &mut out_file)?;
-    // I think VLC can sometimes start reading a video before the file has been
-    // entirely written to disk, which causes it to implode.
-    out_file.flush()?;
-
-    Ok(out_path)
 }

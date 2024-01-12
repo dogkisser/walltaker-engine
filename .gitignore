@@ -1,6 +1,3 @@
 /target
-/.idea
-/libvlc
-/.vscode
-walltaker-engine.json
-walltaker-engine.log
+/walltaker-engine.log
+/walltaker-engine.json

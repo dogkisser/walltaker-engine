@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walltaker Engine Settings</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/98.css">
+</head>
+<body>
+    <div style="width: 270px;">
+        <div class="field-row" style="width: 200px">
+            <label for="new-link"></label>
+            <input id="new-link" placeholder="4870" type="text" />
+            <button id="add-link">Add</button>
+            <button id="remove-link">Remove</button>
+        </div>
+
+        <div class="sunken-panel" style="margin-top: 5px; height: 120px; width: 100%;">
+            <table class="interactive" style="width: 100%;">
+                <tbody id="links" >
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <style>
+        html {
+            background-color: #c0c0c0;
+        }
+    </style>
+
+    <script>
+const addLink = (to, value) => {
+    const new_tr = document.createElement('tr');
+    const new_td = document.createElement('td');
+    const new_text = document.createTextNode(value);
+
+    new_tr.appendChild(new_td);
+    new_td.appendChild(new_text);
+    to.appendChild(new_tr);
+};
+
+window.onload = async () => {
+const add_link = document.getElementById('add-link');
+const new_link = document.getElementById('new-link');
+const remove_link = document.getElementById('remove-link');
+const links_table_body = document.getElementById('links');
+
+let settings = await window.loadSettings();
+
+settings.links.forEach(link => addLink(links_table_body, link));
+
+document.querySelectorAll('table.interactive').forEach(element => {
+    element.addEventListener('click', (event) => {
+        const row = event.composedPath().find(element => element.tagName === 'TR' && element.parentElement.tagName === 'TBODY');
+        if (row) {
+            const rows = Array.from(element.parentElement.querySelectorAll('tbody tr'));
+            rows.forEach(r => r.classList.remove('highlighted'));
+
+            row.classList.add('highlighted');
+        }
+    });
+});
+
+add_link.addEventListener('click', (event) => {
+    const link = Number(new_link.value);
+    if (!isNaN(link) && link != 0 && !settings.links.includes(link)) {
+        addLink(links_table_body, link);
+        new_link.value = '';
+        settings.links.push(link);
+    }
+
+    saveSettings(settings);
+});
+
+remove_link.addEventListener('click', (event) => {
+    const selected = links_table_body.querySelector('.highlighted');
+    if (selected) {
+        selected.remove();
+        const link = Number(selected.textContent);
+        settings.links = settings.links.filter((e) => e !== link);
+    }
+
+    saveSettings(settings);
+});
+
+};
+    </script>
+</body>
+</html>

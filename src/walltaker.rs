@@ -20,7 +20,7 @@ pub enum Incoming {
 #[derive(Deserialize)]
 pub struct WallpaperUpdate {
     pub id:       usize,
-    pub post_url: String,
+    pub post_url: Option<String>,
     pub set_by:   Option<String>,
 }
 
