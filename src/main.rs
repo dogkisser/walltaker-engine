@@ -199,6 +199,9 @@ async fn _main() -> Result<()> {
         for view in &bg_webviews {
             view.handle_messages()?;
         }
+
+        // Throttle
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
