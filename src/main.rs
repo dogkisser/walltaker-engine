@@ -50,7 +50,6 @@ enum FitMode {
     Fill,
 }
 
-const SETTINGS_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/settings.html.min"));
 const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
 
 enum TrayMessage {
@@ -58,14 +57,6 @@ enum TrayMessage {
     Settings,
     Refresh,
     OpenCurrent,
-}
-
-// TODO: Maybe just make all of this just one "Update" message
-enum UiMessage {
-    UpdateFit,
-    UpdateRunOnBoot,
-    UpdateBackgroundColour,
-    SubscribeTo(usize),
 }
 
 macro_rules! tray_items {
@@ -104,7 +95,7 @@ async fn _main() -> Result<()> {
         let mut cfg = Config::default();
         cfg.notifications = true;
         cfg.debug_logs = true;
-        cfg.background_colour = String::from("#000000");
+        cfg.background_colour = String::from("#202640");
         cfg
     };
     let config: Rc<Mutex<Config>> = Mutex::new(config).into();
@@ -140,13 +131,9 @@ async fn _main() -> Result<()> {
     tray.inner_mut().add_separator()?;
     tray_items![tx, tray, "Quit", TrayMessage::Quit;];
 
-    let (ws_stream, _) = tokio_tungstenite::connect_async(
-        "wss://walltaker.joi.how/cable").await?;
-    let (mut write, mut read) = ws_stream.split();
-
     let mut bg_webviews = Vec::new();
     for hwnd in hwnds {
-        let webview = Rc::new(webview::WebView::create(Some(hwnd), true, (100, 100))?);
+        let webview = webview::WebView::create(Some(hwnd), true, (100, 100))?;
         webview.navigate_html(BACKGROUND_HTML)?;
         set_bg_colour(&webview, &config.lock().unwrap().background_colour)?;
         set_fit(&config.lock().unwrap().fit_mode, &webview)?;
@@ -154,56 +141,18 @@ async fn _main() -> Result<()> {
         bg_webviews.push(webview);
     }
 
-    let _config = Rc::clone(&config);
-
-    let (ui_tx, ui_rx) = std::sync::mpsc::sync_channel(50);
-    let settings = webview::WebView::create(None, true, (420, 420))?;
-    let _config = Rc::clone(&config);
-    let _ui_tx = ui_tx.clone();
-    settings.bind("saveSettings", move |request| {
-        if let Some(new_cfg) = request.get(0) {
-            let new_settings: Config = serde_json::from_value(new_cfg.clone())?;
-            let mut config = _config.lock().unwrap();
-        
-            let _ = _ui_tx.send(UiMessage::UpdateFit);
-
-            // This is theoretically really, really slow but these vecs will only
-            // ever contain like, 5 elements tops. So it doesn't really matter.
-            let added = new_settings.links.iter()
-                .filter(|i| !config.links.contains(i));
-            let _removed = config.links.iter()
-                .filter(|i| !new_settings.links.contains(i));
-            // TODO: support live unsubscribing
-
-            for link in added {
-                let _ = _ui_tx.send(UiMessage::SubscribeTo(*link));
-            }
-
-            let _ = _ui_tx.send(UiMessage::UpdateBackgroundColour);
-            let _ = _ui_tx.send(UiMessage::UpdateRunOnBoot);
-
-            log::info!("Settings updated {new_settings:#?}");
-
-            *config = new_settings;
-            return Ok(serde_json::Value::String(String::from("ok")));
-        }
-
-        Err(webview::Error::WebView2Error(
-            webview2_com::Error::CallbackError(String::from("Called wrong. wtf?"))))
-    })?;
-    let _config = Rc::clone(&config);
-    settings.bind("loadSettings", move |_request| {
-        let cfg = &*_config;
-        Ok(serde_json::to_value(cfg)?)
-    })?;
-    settings.resize(420, 420)?;
-    settings.navigate_html(SETTINGS_HTML)?;
+    let (settings, ui_rx) = webview::webviews::settings::create_settings_webview(&config)?;
     settings.show();
+
+    let (ws_stream, _) = tokio_tungstenite::connect_async("wss://walltaker.joi.how/cable").await?;
+    let (mut write, mut read) = ws_stream.split();
 
     let mut current_url = None;
     loop {
         /* Read UI message */
         if let Ok(message) = ui_rx.try_recv() {
+            use crate::webview::webviews::settings::UiMessage;
+
             match message {
                 UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
                 UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().unwrap().run_on_boot)?,
@@ -218,76 +167,30 @@ async fn _main() -> Result<()> {
         
         /* Read Walltaker websocket messages */
         if let Ready(Some(message)) = poll!(read.next()) {
-            use walltaker::Incoming;
+            let new_link = read_walltaker_message(
+                &*config.lock().unwrap(),
+                &mut write,
+                &bg_webviews,
+                &message?
+            ).await?;
 
-            let msg = message?.to_string();
-            match serde_json::from_str(&msg).context(msg)? {
-                Incoming::Ping { .. } => { },
-
-                Incoming::Welcome => {
-                    info!("Connected to Walltaker");
-
-                    for link in &config.lock().unwrap().links {
-                        walltaker::subscribe_to(&mut write, *link).await?;
-                    }
-
-                    if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
-                        // Not the best but it works and whatnot
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
-                        info!("Checking link {link} for initial wallpaper");
-                        walltaker::check(&mut write, *link).await?;
-                    }
-                },
-
-                Incoming::ConfirmSubscription { identifier } => {
-                    info!("Successfully subscribed to {identifier}");
-                },
-
-                // Wallpaper change
-                Incoming::Message { message, .. } => {
-                    if let Some(url) = message.post_url {
-                        info!("Changing wallpaper to {url}");
-                        let url_path = PathBuf::from(&url);
-                        let ext = url_path.extension().unwrap().to_string_lossy().to_lowercase();
-                        current_url = Some(url_path);
-
-                        let element = 
-                            if ext == "webm" {
-                                "video"
-                            } else {
-                                "image"
-                            };
-
-                        for view in &bg_webviews {
-                            view.eval(&format!("
-                                document.getElementById('{element}').src = '{url}';
-                            "))?;
-                        }
-
-                        if config.lock().unwrap().notifications {
-                            let set_by = message.set_by
-                                .unwrap_or_else(|| String::from("Anonymous"));
-
-                            let text = format!("{} changed your wallpaper via link {}! ❤️",
-                                set_by, message.id);
-
-                            notification(&text);
-                        }
-                    }
-                }
+            if new_link.is_some() {
+                current_url = new_link;
             }
         }
 
         /* Read tray messages */
         if let Ok(message) = rx.try_recv() {
             match message {
+                TrayMessage::Settings => settings.show(),
+
                 TrayMessage::Quit => {
                     let mut cfg = File::create(config_path)?;
-                    write!(cfg, "{}", serde_json::to_string(&*config.lock().unwrap())?)?;
+                    write!(cfg, "{}", serde_json::to_string(&*config)?)?;
                     log::info!("settings saved");
                     std::process::exit(0);
                 },
-    
+        
                 TrayMessage::Refresh => {
                     if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
                         walltaker::check(&mut write, *link).await?;
@@ -305,10 +208,6 @@ async fn _main() -> Result<()> {
                         open(&url);
                     }
                 },
-    
-                TrayMessage::Settings => {
-                    settings.show();
-                },
             }
         }
 
@@ -319,7 +218,77 @@ async fn _main() -> Result<()> {
     }
 }
 
-fn set_fit(mode: &FitMode, to: &Rc<webview::WebView>) -> webview::Result<()> {
+async fn read_walltaker_message(
+    config: &Config,
+    writer: &mut Writer,
+    bg_webviews: &[webview::WebView],
+    message: &Message
+) -> anyhow::Result<Option<PathBuf>>
+{
+    use walltaker::Incoming;
+
+    let msg = message.to_string();
+    match serde_json::from_str(&msg).context(msg)? {
+        Incoming::Ping { .. } => { },
+
+        Incoming::Welcome => {
+            info!("Connected to Walltaker");
+
+            for link in &config.links {
+                walltaker::subscribe_to(writer, *link).await?;
+            }
+
+            if let Some(link) = config.links.choose(&mut rand::thread_rng()) {
+                // Not the best but it works and whatnot
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+                info!("Checking link {link} for initial wallpaper");
+                walltaker::check(writer, *link).await?;
+            }
+        },
+
+        Incoming::ConfirmSubscription { identifier } => {
+            info!("Successfully subscribed to {identifier}");
+        },
+
+        // Wallpaper change
+        Incoming::Message { message, .. } => {
+            if let Some(url) = message.post_url {
+                info!("Changing wallpaper to {url}");
+                let url_path = PathBuf::from(&url);
+                let ext = url_path.extension().unwrap().to_string_lossy().to_lowercase();
+
+                let element = 
+                    if ext == "webm" {
+                        "video"
+                    } else {
+                        "image"
+                    };
+
+                for view in bg_webviews {
+                    view.eval(&format!("
+                        document.getElementById('{element}').src = '{url}';
+                    "))?;
+                }
+
+                if config.notifications {
+                    let set_by = message.set_by
+                        .unwrap_or_else(|| String::from("Anonymous"));
+
+                    let text = format!("{} changed your wallpaper via link {}! ❤️",
+                        set_by, message.id);
+
+                    notification(&text);
+                }
+
+                return Ok(Some(url_path));
+            }
+        }
+    }
+
+    Ok(None)
+}
+ 
+fn set_fit(mode: &FitMode, to: &webview::WebView) -> webview::Result<()> {
     to.eval(match mode {
         FitMode::Stretch => "setStretch();",
         FitMode::Fill => "setFill();",
@@ -329,7 +298,7 @@ fn set_fit(mode: &FitMode, to: &Rc<webview::WebView>) -> webview::Result<()> {
     Ok(())
 }
 
-fn set_bg_colour(view: &Rc<webview::WebView>, color: &str) -> anyhow::Result<()> {
+fn set_bg_colour(view: &webview::WebView, color: &str) -> anyhow::Result<()> {
     view.eval(&format!("document.body.style.backgroundColor = '{}';", color))?;
     
     Ok(())

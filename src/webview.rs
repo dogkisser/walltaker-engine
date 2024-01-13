@@ -20,6 +20,9 @@ use windows::{
     },
 };
 
+pub mod settings;
+pub mod webviews;
+
 #[derive(Debug)]
 pub enum Error {
     WebView2Error(webview2_com::Error),
