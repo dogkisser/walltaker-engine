@@ -6,6 +6,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
+directories = "5.0.1"
 futures-util = "0.3.30"
 log = "0.4.20"
 rand = "0.8.5"

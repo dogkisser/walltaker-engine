@@ -36,64 +36,7 @@ struct Config {
 }
 
 const SETTINGS_HTML: &str = include_str!("../res/settings.html");
-
-const HTML: &str = r#"
-    <!doctype html>
-    <html>
-        <body>
-            <img id="image"></img>
-            <video id="video" autoplay preload>
-            </video>
-        </body>
-    </html>
-
-    <script>
-window.onload = () => {
-    document.getElementById('video').addEventListener('loadeddata', () => {
-        document.getElementById('video').style.display = 'block';
-        document.getElementById('image').style.display = 'none';
-    }, false);
-
-    document.getElementById('image').onload = () => {
-        document.getElementById('video').style.display = 'none';
-        document.getElementById('image').style.display = 'block';
-    };
-};
-    </script>
-
-    <style>
-        html, body {
-            overflow: hidden;
-            width: 100vw;
-            height: 100vh;
-            padding: 0;
-            margin: 0;
-
-            background-color: black;
-        }
-
-        #video {
-            display: none;
-            min-width: 100%; 
-            min-height: 100%; 
-            height: 100%;
-            width: auto;
-
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%,-50%);
-        }
-
-        #image {
-            display: none;
-            max-width: 100%;
-            max-height: 100%;
-            height: 100%;
-            margin: auto;
-        }
-    </style>
-"#;
+const BACKGROUND_HTML: &str = include_str!("../res/background.html");
 
 enum TrayMessage {
     Quit,
@@ -115,7 +58,10 @@ macro_rules! tray_items {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config_path = "./walltaker-engine.json";
+    let config_path = directories::BaseDirs::new()
+        .unwrap()
+        .config_dir()
+        .join("walltaker-engine/walltaker-engine.json");
 
     let config: Config = serde_json::from_reader(File::open(&config_path)?)?;
     let config: Rc<Mutex<Config>> = Mutex::new(config).into();
@@ -158,7 +104,7 @@ async fn main() -> Result<()> {
     let write = Arc::new(tokio::sync::Mutex::new(write));
 
     let webview = webview::WebView::create(Some(hwnd), false)?;
-    webview.navigate_html(HTML)?;
+    webview.navigate_html(BACKGROUND_HTML)?;
 
     let settings = webview::WebView::create(None, true)?;
     let _config = std::rc::Rc::clone(&config);
