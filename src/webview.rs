@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 #[allow(clippy::wildcard_imports)]
 use webview2_com::{*, Microsoft::Web::WebView2::Win32::*};
+use windows::Win32::{UI::WindowsAndMessaging::{LoadImageA, IMAGE_ICON, LR_SHARED, WM_SETICON, SendMessageA, ICON_SMALL}, Foundation::HINSTANCE, System::LibraryLoader::GetModuleHandleA};
 #[allow(clippy::wildcard_imports)]
 use windows::{
     core::*,
@@ -25,6 +26,7 @@ use windows::{
 pub mod settings;
 pub mod webviews;
 
+/// TODO: This function generally needs better error management.
 #[derive(Debug)]
 pub enum Error {
     WebView2(webview2_com::Error),
@@ -107,7 +109,7 @@ impl FrameWindow {
             unsafe {
                 WindowsAndMessaging::RegisterClassW(&window_class);
 
-                WindowsAndMessaging::CreateWindowExW(
+                let hwnd = WindowsAndMessaging::CreateWindowExW(
                     WINDOW_EX_STYLE::default(),
                     w!("WalltakerEngine"),
                     w!("Walltaker Engine"),
@@ -120,7 +122,15 @@ impl FrameWindow {
                     None,
                     LibraryLoader::GetModuleHandleW(None).unwrap_or_default(),
                     None,
-                )
+                );
+
+
+                let handle = GetModuleHandleA(PCSTR::null()).unwrap();
+                let icon_handle = LoadImageA(handle, s!("icon"), IMAGE_ICON, 0, 0, LR_SHARED)
+                    .unwrap();
+                SendMessageA(hwnd, WM_SETICON, WPARAM(ICON_SMALL as usize), LPARAM(icon_handle.0));
+
+                hwnd
             }
         };
 

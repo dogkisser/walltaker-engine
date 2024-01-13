@@ -107,7 +107,7 @@ async fn _main() -> Result<()> {
     let hwnds = unsafe { hwnd::find_hwnds() }?;
 
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let mut tray = TrayItem::new("Walltaker Engine", IconSource::Resource("tray-icon"))?;
+    let mut tray = TrayItem::new("Walltaker Engine", IconSource::Resource("icon"))?;
     tray_items![tx, tray,
         "Open Current", TrayMessage::OpenCurrent;
         "Refresh",      TrayMessage::Refresh;
