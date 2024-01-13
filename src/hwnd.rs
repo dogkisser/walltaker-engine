@@ -34,7 +34,8 @@ pub unsafe fn find_hwnds() -> anyhow::Result<Vec<HWND>> {
         LPARAM(0x1),
         SMTO_NORMAL,
         1000,
-        None);
+        None,
+    );
 
     // Now we need to find the window it created.
     let mut workerw_hwnd = HWND(0);

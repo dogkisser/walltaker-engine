@@ -106,7 +106,7 @@ async fn _main() -> Result<()> {
     
     let hwnds = unsafe { hwnd::find_hwnds() }?;
 
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let (tx, rx) = std::sync::mpsc::sync_channel(5);
     let mut tray = TrayItem::new("Walltaker Engine", IconSource::Resource("icon"))?;
     tray_items![tx, tray,
         "Open Current", TrayMessage::OpenCurrent;
@@ -131,7 +131,6 @@ async fn _main() -> Result<()> {
 
     let (ws_stream, _) = tokio_tungstenite::connect_async("wss://walltaker.joi.how/cable").await?;
     let (mut write, mut read) = ws_stream.split();
-
     let mut current_url = None;
     loop {
         /* Read UI message */

@@ -14,7 +14,7 @@ use webview2_com::{*, Microsoft::Web::WebView2::Win32::*};
 use windows::Win32::{
     System::LibraryLoader::GetModuleHandleA,
     UI::WindowsAndMessaging::{
-        IMAGE_ICON, LR_SHARED, WM_SETICON, ICON_SMALL,
+        IMAGE_ICON, LR_SHARED, WM_SETICON, ICON_SMALL, PM_REMOVE,
         LoadImageA, SendMessageA,
     },
 };
@@ -358,7 +358,7 @@ impl WebView {
         }
 
         unsafe {
-            let result = WindowsAndMessaging::GetMessageW(&mut msg, h_wnd, 0, 0).0;
+            let result = WindowsAndMessaging::PeekMessageA(&mut msg, h_wnd, 0, 0, PM_REMOVE).0;
 
             match (result, msg.message) {
                 (-1, _) => Err(windows::core::Error::from_win32().into()),
