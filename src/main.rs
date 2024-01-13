@@ -2,7 +2,7 @@
 use std::fs::File;
 use std::rc::Rc;
 use std::sync::Mutex;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use std::time::Duration;
 use std::task::Poll::Ready;
 use std::io::Write;
@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
 
     let _config = Rc::clone(&config);
 
-    let (ui_tx, ui_rx) = std::sync::mpsc::sync_channel(1);
+    let (ui_tx, ui_rx) = std::sync::mpsc::sync_channel(50);
     let settings = webview::WebView::create(None, true, (420, 420))?;
     let _config = Rc::clone(&config);
     let _ui_tx = ui_tx.clone();
@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
             let mut config = _config.lock().unwrap();
         
             let _ = _ui_tx.send(UiMessage::UpdateFit);
-    
+
             // This is theoretically really, really slow but these vecs will only
             // ever contain like, 5 elements tops. So it doesn't really matter.
             let added = new_settings.links.iter()
@@ -157,7 +157,7 @@ async fn main() -> Result<()> {
             // TODO: support live unsubscribing
 
             for link in added {
-                _ui_tx.send(UiMessage::SubscribeTo(*link));
+                let _ = _ui_tx.send(UiMessage::SubscribeTo(*link));
             }
 
             log::info!("Settings updated {new_settings:#?}");
