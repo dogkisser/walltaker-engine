@@ -47,14 +47,18 @@ enum FitMode {
     Fill,
 }
 
-const SETTINGS_HTML: &str = include_str!("../res/settings.html");
-const BACKGROUND_HTML: &str = include_str!("../res/background.html");
+const SETTINGS_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/settings.html.min"));
+const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
 
 enum TrayMessage {
     Quit,
     Settings,
     Refresh,
     OpenCurrent,
+}
+
+enum UiMessage {
+    UpdateFit,
 }
 
 macro_rules! tray_items {
@@ -123,17 +127,25 @@ async fn main() -> Result<()> {
     let (write, mut read) = ws_stream.split();
     let write = Arc::new(tokio::sync::Mutex::new(write));
 
-    let webview = webview::WebView::create(Some(hwnd), false, (0, 0))?;
+    let webview = Rc::new(webview::WebView::create(None, true, (100, 100))?);
+    webview.show();
+    let _config = Rc::clone(&config);
     webview.navigate_html(BACKGROUND_HTML)?;
+    set_fit(&config.lock().unwrap().fit_mode, &webview)?;
 
+    let (ui_tx, ui_rx) = std::sync::mpsc::sync_channel(1);
     let settings = webview::WebView::create(None, true, (420, 420))?;
-    let _config = std::rc::Rc::clone(&config);
+    let _config = Rc::clone(&config);
     let _write = Arc::clone(&write);
+    let _bg_wv = Rc::clone(&webview);
+    let _ui_tx = ui_tx.clone();
     settings.bind("saveSettings", move |request| {
         if let Some(new_cfg) = request.get(0) {
             let new_settings: Config = serde_json::from_value(new_cfg.clone())?;
             let mut config = _config.lock().unwrap();
-            
+        
+            let _ = _ui_tx.send(UiMessage::UpdateFit);
+    
             // This is theoretically really, really slow but these vecs will only
             // ever contain like, 5 elements tops. So it doesn't really matter.
             let added = new_settings.links.iter()
@@ -159,7 +171,7 @@ async fn main() -> Result<()> {
         Err(webview::Error::WebView2Error(
             webview2_com::Error::CallbackError(String::from("Called wrong. wtf?"))))
     })?;
-    let _config = std::rc::Rc::clone(&config);
+    let _config = Rc::clone(&config);
     settings.bind("loadSettings", move |_request| {
         let cfg = &*_config;
         Ok(serde_json::to_value(cfg)?)
@@ -170,6 +182,13 @@ async fn main() -> Result<()> {
 
     let mut current_url = None;
     loop {
+        /* Read UI message */
+        if let Ok(message) = ui_rx.try_recv() {
+            match message {
+                UiMessage::UpdateFit => set_fit(&config.lock().unwrap().fit_mode, &_bg_wv)?,
+            }
+        }
+        
         /* Read Walltaker websocket messages */
         if let Ready(Some(message)) = poll!(read.next()) {
             use walltaker::Incoming;
@@ -256,6 +275,16 @@ async fn main() -> Result<()> {
         webview.handle_messages()?;
         settings.handle_messages()?;
     }
+}
+
+fn set_fit(mode: &FitMode, to: &Rc<webview::WebView>) -> webview::Result<()> {
+    to.eval(match mode {
+        FitMode::Stretch => "setStretch();",
+        FitMode::Fill => "setFill();",
+        FitMode::Fit => "setFit();",
+    })?;
+
+    Ok(())
 }
 
 pub fn open(url: &str) {

@@ -41,6 +41,7 @@ features = [
 
 [build-dependencies]
 embed-resource = "2.4.0"
+minify-html = "0.15.0"
 
 [profile.release]
 opt-level = "z"

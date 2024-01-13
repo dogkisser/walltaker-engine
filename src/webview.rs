@@ -72,7 +72,7 @@ impl<'a, T: 'a> From<std::sync::TryLockError<T>> for Error {
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 struct Window(HWND);
 
