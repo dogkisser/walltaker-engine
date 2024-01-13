@@ -3,7 +3,6 @@
 #![allow(clippy::too_many_lines)]
 use std::fs::File;
 use std::rc::Rc;
-use std::sync::Mutex;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::task::Poll::Ready;
@@ -104,9 +103,9 @@ async fn _main() -> Result<()> {
         }
     };
     config.version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let config: Rc<Mutex<Config>> = Mutex::new(config).into();
+    let config: Rc<tokio::sync::Mutex<Config>> = tokio::sync::Mutex::new(config).into();
 
-    if config.lock().unwrap().debug_logs {
+    if config.lock().await.debug_logs {
         CombinedLogger::init(vec![
             TermLogger::new(LevelFilter::Debug, simplelog::Config::default(),
                 TerminalMode::Mixed, ColorChoice::Auto),
@@ -142,8 +141,8 @@ async fn _main() -> Result<()> {
     for hwnd in hwnds {
         let webview = webview::WebView::create(Some(hwnd), true, (100, 100))?;
         webview.navigate_html(BACKGROUND_HTML)?;
-        set_bg_colour(&webview, &config.lock().unwrap().background_colour)?;
-        set_fit(&config.lock().unwrap().fit_mode, &webview)?;
+        set_bg_colour(&webview, &config.lock().await.background_colour)?;
+        set_fit(&config.lock().await.fit_mode, &webview)?;
         
         bg_webviews.push(webview);
     }
@@ -161,12 +160,12 @@ async fn _main() -> Result<()> {
 
             match message {
                 UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
-                UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().unwrap().run_on_boot)?,
+                UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().await.run_on_boot)?,
                 UiMessage::UpdateBackgroundColour => for view in &bg_webviews {
-                    set_bg_colour(view, &config.lock().unwrap().background_colour)?;
+                    set_bg_colour(view, &config.lock().await.background_colour)?;
                 },
                 UiMessage::UpdateFit => for view in &bg_webviews {
-                    set_fit(&config.lock().unwrap().fit_mode, view)?;
+                    set_fit(&config.lock().await.fit_mode, view)?;
                 },
             }
         }
@@ -174,7 +173,7 @@ async fn _main() -> Result<()> {
         /* Read Walltaker websocket messages */
         if let Ready(Some(message)) = poll!(read.next()) {
             let new_link = read_walltaker_message(
-                &*config.lock().unwrap(),
+                &*config.lock().await,
                 &mut write,
                 &bg_webviews,
                 &message?
@@ -192,13 +191,13 @@ async fn _main() -> Result<()> {
 
                 TrayMessage::Quit => {
                     let mut cfg = File::create(config_path)?;
-                    write!(cfg, "{}", serde_json::to_string(&*config)?)?;
+                    write!(cfg, "{}", serde_json::to_string(&*config.lock().await)?)?;
                     log::info!("settings saved");
                     std::process::exit(0);
                 },
         
                 TrayMessage::Refresh => {
-                    if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
+                    if let Some(link) = config.lock().await.links.choose(&mut rand::thread_rng()) {
                         walltaker::check(&mut write, *link).await?;
                     }
                 },
