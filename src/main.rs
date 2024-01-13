@@ -3,7 +3,7 @@
 #![allow(clippy::too_many_lines)]
 use std::fs::File;
 use std::rc::Rc;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::time::Duration;
 use std::task::Poll::Ready;
 use std::io::Write;
@@ -75,59 +75,37 @@ macro_rules! tray_items {
 
 #[tokio::main]
 async fn main() {
+    let instance = single_instance::SingleInstance::new("walltaker-engine").unwrap();
+    if !instance.is_single() {
+        return;
+    }
+
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).unwrap();
+        HiDpi::SetProcessDpiAwareness(HiDpi::PROCESS_PER_MONITOR_DPI_AWARE).unwrap();
+    }
+
     if let Err(e) = _main().await {
         log::error!("Crash: {e:#?}");
     }
 }
 
 async fn _main() -> Result<()> {
-    let instance = single_instance::SingleInstance::new("walltaker-engine")?;
-    if !instance.is_single() {
-        return Ok(());
-    }
-
     let config_path = directories::BaseDirs::new()
         .unwrap()
         .config_dir()
         .join("walltaker-engine/walltaker-engine.json");
-
-    let mut config: Config = if let Ok(file) = File::open(&config_path) {
-        serde_json::from_reader(file)?
-    } else {
-        // Default configuration
-        Config {
-            notifications: true,
-            debug_logs: true,
-            background_colour: String::from("#202640"),
-            ..Default::default()
-        }
-    };
-    config.version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let config = load_config(&config_path)?;
     let config: Rc<tokio::sync::Mutex<Config>> = tokio::sync::Mutex::new(config).into();
 
-    if config.lock().await.debug_logs {
-        CombinedLogger::init(vec![
-            TermLogger::new(LevelFilter::Debug, simplelog::Config::default(),
-                TerminalMode::Mixed, ColorChoice::Auto),
-            WriteLogger::new(LevelFilter::Debug, simplelog::Config::default(),
-                std::fs::File::create("walltaker-engine.log")?),
-        ])?;
-    } else {
-        TermLogger::init(LevelFilter::Debug, simplelog::Config::default(),
-            TerminalMode::Mixed, ColorChoice::Auto)?;
-    }
+    init_logging(config.lock().await.debug_logs)?;
 
     info!("Parsed config: {config:#?}");
-
-    unsafe {
-        CoInitializeEx(None, COINIT_APARTMENTTHREADED)?;
-        HiDpi::SetProcessDpiAwareness(HiDpi::PROCESS_PER_MONITOR_DPI_AWARE)?;
-    }
+    
     let hwnds = unsafe { hwnd::find_hwnds() }?;
 
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let mut tray = TrayItem::new("Walltaker Engine",
-                        IconSource::Resource("tray-icon"))?;
+    let mut tray = TrayItem::new("Walltaker Engine", IconSource::Resource("tray-icon"))?;
     tray_items![tx, tray,
         "Open Current", TrayMessage::OpenCurrent;
         "Refresh",      TrayMessage::Refresh;
@@ -223,6 +201,23 @@ async fn _main() -> Result<()> {
     }
 }
 
+fn load_config<P: AsRef<Path>>(from: P) -> Result<Config> {
+    let mut config: Config = if let Ok(file) = File::open(&from) {
+        serde_json::from_reader(file)?
+    } else {
+        // Default configuration
+        Config {
+            notifications: true,
+            debug_logs: true,
+            background_colour: String::from("#202640"),
+            ..Default::default()
+        }
+    };
+    config.version = format!("v{}", env!("CARGO_PKG_VERSION"));
+
+    Ok(config)
+}
+
 async fn read_walltaker_message(
     config: &Config,
     writer: &mut Writer,
@@ -291,6 +286,22 @@ async fn read_walltaker_message(
     }
 
     Ok(None)
+}
+
+fn init_logging(write: bool) -> Result<()> {
+    if write {
+        CombinedLogger::init(vec![
+            TermLogger::new(LevelFilter::Debug, simplelog::Config::default(),
+                TerminalMode::Mixed, ColorChoice::Auto),
+            WriteLogger::new(LevelFilter::Debug, simplelog::Config::default(),
+                std::fs::File::create("walltaker-engine.log")?),
+        ])?;
+    } else {
+        TermLogger::init(LevelFilter::Debug, simplelog::Config::default(),
+            TerminalMode::Mixed, ColorChoice::Auto)?;
+    }
+
+    Ok(())
 }
  
 fn set_fit(mode: &FitMode, to: &webview::WebView) -> webview::Result<()> {
