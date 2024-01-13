@@ -200,7 +200,7 @@ async fn _main() -> Result<()> {
             view.handle_messages()?;
         }
 
-        tokio::time::sleep(Duration::from_millis(20));
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
