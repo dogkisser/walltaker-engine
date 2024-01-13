@@ -11,7 +11,13 @@ use serde::Deserialize;
 use serde_json::Value;
 #[allow(clippy::wildcard_imports)]
 use webview2_com::{*, Microsoft::Web::WebView2::Win32::*};
-use windows::Win32::{UI::WindowsAndMessaging::{LoadImageA, IMAGE_ICON, LR_SHARED, WM_SETICON, SendMessageA, ICON_SMALL}, Foundation::HINSTANCE, System::LibraryLoader::GetModuleHandleA};
+use windows::Win32::{
+    System::LibraryLoader::GetModuleHandleA,
+    UI::WindowsAndMessaging::{
+        IMAGE_ICON, LR_SHARED, WM_SETICON, ICON_SMALL,
+        LoadImageA, SendMessageA,
+    },
+};
 #[allow(clippy::wildcard_imports)]
 use windows::{
     core::*,
@@ -19,7 +25,11 @@ use windows::{
         Foundation::{E_POINTER, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
         Graphics::Gdi,
         System::{LibraryLoader, Threading, WinRT::EventRegistrationToken},
-        UI::WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, SetWindowPos, SWP_NOZORDER, SWP_NOMOVE, WINDOW_EX_STYLE},
+        UI::WindowsAndMessaging::{self,
+            MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, SWP_NOZORDER, SWP_NOMOVE,
+            WINDOW_EX_STYLE,
+            SetWindowPos
+        },
     },
 };
 
