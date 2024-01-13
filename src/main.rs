@@ -1,31 +1,33 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![warn(clippy::pedantic)]
 #![allow(clippy::too_many_lines)]
-use std::fs::File;
-use std::rc::Rc;
-use std::path::{PathBuf, Path};
-use std::time::Duration;
-use std::task::Poll::Ready;
-use std::io::Write;
 use anyhow::{Result, Context};
 use futures_util::{stream::SplitSink, poll, StreamExt};
 use log::info;
 use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
+use tray_item::{IconSource, TrayItem};
+use rand::prelude::*;
+use winrt_notification::Toast;
+use std::{
+    fs::File,
+    rc::Rc,
+    path::{PathBuf, Path},
+    time::Duration,
+    task::Poll::Ready,
+    io::Write,
+};
 use windows::core::{PCWSTR, HSTRING};
 use windows::Win32::{
     UI::{WindowsAndMessaging::SW_SHOW, Shell::ShellExecuteW, HiDpi},
     Foundation::HWND,
     System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED},
 };
-use tray_item::{IconSource, TrayItem};
 use simplelog::{
     CombinedLogger, LevelFilter, ColorChoice, TermLogger,
     WriteLogger, TerminalMode
 };
-use rand::prelude::*;
-use winrt_notification::Toast;
 
 mod hwnd;
 mod webview;
@@ -53,14 +55,14 @@ enum FitMode {
     Fill,
 }
 
-const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
-
 enum TrayMessage {
     Quit,
     Settings,
     Refresh,
     OpenCurrent,
 }
+
+const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
 
 macro_rules! tray_items {
     ($tx:ident, $tray:ident, $($text:literal, $variant:expr;)+) => {
@@ -223,7 +225,7 @@ async fn read_walltaker_message(
     writer: &mut Writer,
     bg_webviews: &[webview::WebView],
     message: &Message
-) -> anyhow::Result<Option<PathBuf>>
+) -> Result<Option<PathBuf>>
 {
     use walltaker::Incoming;
 
@@ -314,7 +316,7 @@ fn set_fit(mode: &FitMode, to: &webview::WebView) -> webview::Result<()> {
     Ok(())
 }
 
-fn set_bg_colour(view: &webview::WebView, color: &str) -> anyhow::Result<()> {
+fn set_bg_colour(view: &webview::WebView, color: &str) -> Result<()> {
     view.eval(&format!("document.body.style.backgroundColor = '{color}';"))?;
     
     Ok(())
@@ -340,7 +342,7 @@ fn notification(text: &str) {
         .show();
 }
 
-fn run_on_boot(should: bool) -> anyhow::Result<()> {
+fn run_on_boot(should: bool) -> Result<()> {
     let me = std::env::current_exe()?;
     let out = directories::BaseDirs::new()
         .unwrap()
