@@ -99,12 +99,7 @@ switch (settings.fit_mode) {
 }
 
 links.addEventListener('focusout', async event => {
-    links.value.split(' ').forEach(link => {
-        const linkNum = Number(link);
-        if (!isNaN(linkNum) && linkNum != 0 && settings.links.indexOf(linkNum) === -1) {
-            settings.links.push(linkNum);
-        }
-    });
+    settings.links = links.value.split(' ').map(Number).filter(l => !isNaN(l) && l != 0);
 
     links.value = settings.links.join(' ');
     await window.saveSettings(settings);

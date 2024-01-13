@@ -16,7 +16,7 @@ use windows::{
         Foundation::{E_POINTER, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
         Graphics::Gdi,
         System::{LibraryLoader, Threading, WinRT::EventRegistrationToken},
-        UI::WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, MoveWindow, SetWindowPos, SWP_NOZORDER, SWP_NOMOVE},
+        UI::WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, SetWindowPos, SWP_NOZORDER, SWP_NOMOVE},
     },
 };
 
