@@ -51,7 +51,7 @@ pub fn create_settings_webview(
             return Ok(serde_json::Value::String(String::from("ok")));
         }
 
-        Err(Error::WebView2Error(
+        Err(Error::WebView2(
             webview2_com::Error::CallbackError(String::from("Called wrong. wtf?"))))
     })?;
 

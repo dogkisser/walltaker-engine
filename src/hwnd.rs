@@ -1,10 +1,11 @@
 //! This module handles the hacky hack(s) required to get a video playing as
 //! the wallpaper.
 use log::info;
+#[allow(clippy::wildcard_imports)]
 use windows::{
     core::{s, PCSTR},
     Win32::{
-        Foundation::*,
+        Foundation::{BOOL, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
         UI::WindowsAndMessaging::*,
         Graphics::Gdi::{HMONITOR, HDC, EnumDisplayMonitors, HBRUSH},
         System::LibraryLoader::GetModuleHandleA,

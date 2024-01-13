@@ -1,22 +1,24 @@
 /// Shamelessly stolen from 
-/// https://github.com/wravery/webview2-rs
+/// <https://github.com/wravery/webview2-rs>
 /// I'm thrilled to not have to do this work myself.
 use std::{
     collections::HashMap,
     fmt, mem, ptr,
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, Arc, Mutex}, rc::Rc,
 };
 
 use serde::Deserialize;
 use serde_json::Value;
+#[allow(clippy::wildcard_imports)]
 use webview2_com::{*, Microsoft::Web::WebView2::Win32::*};
+#[allow(clippy::wildcard_imports)]
 use windows::{
     core::*,
     Win32::{
         Foundation::{E_POINTER, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
         Graphics::Gdi,
         System::{LibraryLoader, Threading, WinRT::EventRegistrationToken},
-        UI::WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, SetWindowPos, SWP_NOZORDER, SWP_NOMOVE},
+        UI::WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, SetWindowPos, SWP_NOZORDER, SWP_NOMOVE, WINDOW_EX_STYLE},
     },
 };
 
@@ -25,10 +27,10 @@ pub mod webviews;
 
 #[derive(Debug)]
 pub enum Error {
-    WebView2Error(webview2_com::Error),
-    WindowsError(windows::core::Error),
-    JsonError(serde_json::Error),
-    LockError,
+    WebView2(webview2_com::Error),
+    Windows(windows::core::Error),
+    Json(serde_json::Error),
+    Lock,
 }
 
 impl std::error::Error for Error { }
@@ -41,37 +43,37 @@ impl fmt::Display for Error {
 
 impl From<webview2_com::Error> for Error {
     fn from(err: webview2_com::Error) -> Self {
-        Self::WebView2Error(err)
+        Self::WebView2(err)
     }
 }
 
 impl From<windows::core::Error> for Error {
     fn from(err: windows::core::Error) -> Self {
-        Self::WindowsError(err)
+        Self::Windows(err)
     }
 }
 
 impl From<HRESULT> for Error {
     fn from(err: HRESULT) -> Self {
-        Self::WindowsError(windows::core::Error::from(err))
+        Self::Windows(windows::core::Error::from(err))
     }
 }
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
-        Self::JsonError(err)
+        Self::Json(err)
     }
 }
 
 impl<'a, T: 'a> From<std::sync::PoisonError<T>> for Error {
     fn from(_: std::sync::PoisonError<T>) -> Self {
-        Self::LockError
+        Self::Lock
     }
 }
 
 impl<'a, T: 'a> From<std::sync::TryLockError<T>> for Error {
     fn from(_: std::sync::TryLockError<T>) -> Self {
-        Self::LockError
+        Self::Lock
     }
 }
 
@@ -106,7 +108,7 @@ impl FrameWindow {
                 WindowsAndMessaging::RegisterClassW(&window_class);
 
                 WindowsAndMessaging::CreateWindowExW(
-                    Default::default(),
+                    WINDOW_EX_STYLE::default(),
                     w!("WalltakerEngine"),
                     w!("Walltaker Engine"),
                     WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
@@ -138,15 +140,15 @@ type BindingsMap = HashMap<String, BindingCallback>;
 
 #[derive(Clone)]
 pub struct WebView {
-    controller: Arc<WebViewController>,
-    webview: Arc<ICoreWebView2>,
+    controller: Rc<WebViewController>,
+    webview: Rc<ICoreWebView2>,
     tx: WebViewSender,
-    rx: Arc<WebViewReceiver>,
+    rx: Rc<WebViewReceiver>,
     thread_id: u32,
     min_w: i32,
     min_h: i32,
     html: Arc<Mutex<String>>,
-    bindings: Arc<Mutex<BindingsMap>>,
+    bindings: Rc<Mutex<BindingsMap>>,
     frame: Option<FrameWindow>,
     parent: Arc<HWND>,
 }
@@ -166,6 +168,7 @@ struct InvokeMessage {
 
 impl WebView {
     pub fn create(parent: Option<HWND>, debug: bool, min_size: (i32, i32)) -> Result<WebView> {
+        #[allow(clippy::single_match_else)]
         let (parent, frame) = match parent {
             Some(hwnd) => (hwnd, None),
             None => {
@@ -191,7 +194,7 @@ impl WebView {
             )?;
 
             rx.recv()
-                .map_err(|_| Error::WebView2Error(webview2_com::Error::SendError))?
+                .map_err(|_| Error::WebView2(webview2_com::Error::SendError))?
         }?;
 
         let controller = {
@@ -212,13 +215,13 @@ impl WebView {
             )?;
 
             rx.recv()
-                .map_err(|_| Error::WebView2Error(webview2_com::Error::SendError))?
+                .map_err(|_| Error::WebView2(webview2_com::Error::SendError))?
         }?;
 
         let size = get_window_size(parent);
         let mut client_rect = RECT::default();
         unsafe {
-            let _ = WindowsAndMessaging::GetClientRect(parent, std::mem::transmute(&mut client_rect));
+            let _ = WindowsAndMessaging::GetClientRect(parent, std::ptr::addr_of_mut!(client_rect));
             controller.SetBounds(RECT {
                 left: 0,
                 top: 0,
@@ -245,31 +248,31 @@ impl WebView {
         }
 
         let (tx, rx) = mpsc::channel();
-        let rx = Arc::new(rx);
+        let rx = Rc::new(rx);
         let thread_id = unsafe { Threading::GetCurrentThreadId() };
 
         let webview = WebView {
-            controller: Arc::new(WebViewController(controller)),
-            webview: Arc::new(webview),
+            controller: Rc::new(WebViewController(controller)),
+            webview: Rc::new(webview),
             tx,
             rx,
             thread_id,
             min_w: min_size.0,
             min_h: min_size.1,
             html: Mutex::new(String::new()).into(),
-            bindings: Arc::new(Mutex::new(HashMap::new())),
+            bindings: Rc::new(Mutex::new(HashMap::new())),
             frame,
             parent: Arc::new(parent),
         };
 
         // Inject the invoke handler.
         webview
-            .init(r#"window.external = { invoke: s => window.chrome.webview.postMessage(s) };"#)?;
+            .init(r"window.external = { invoke: s => window.chrome.webview.postMessage(s) };")?;
 
         let bindings = webview.bindings.clone();
         let bound = webview.clone();
         unsafe {
-            let mut _token = EventRegistrationToken::default();
+            let mut token_ = EventRegistrationToken::default();
             webview.webview.add_WebMessageReceived(
                 &WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
                     if let Some(args) = args {
@@ -282,14 +285,13 @@ impl WebView {
                                 if let Ok(mut bindings) = bindings.try_lock() {
                                     if let Some(f) = bindings.get_mut(&value.method) {
                                         match (*f)(value.params) {
-                                            Ok(result) => bound.resolve(value.id, 0, result),
+                                            Ok(result) => bound.resolve(value.id, 0, &result),
                                             Err(err) => bound.resolve(
                                                 value.id,
                                                 1,
-                                                Value::String(format!("{err:#?}")),
+                                                &Value::String(format!("{err:#?}")),
                                             ),
-                                        }
-                                        .unwrap();
+                                        };
                                     }
                                 }
                             }
@@ -297,7 +299,7 @@ impl WebView {
                     }
                     Ok(())
                 })),
-                &mut _token,
+                &mut token_,
             )?;
         }
 
@@ -326,16 +328,13 @@ impl WebView {
         unsafe {
             let result = WindowsAndMessaging::GetMessageW(&mut msg, h_wnd, 0, 0).0;
 
-            match result {
-                -1 => Err(windows::core::Error::from_win32().into()),
-                0 => Ok(()),
-                _ => match msg.message {
-                    WindowsAndMessaging::WM_APP => Ok(()),
-                    _ => {
-                        WindowsAndMessaging::TranslateMessage(&msg);
-                        WindowsAndMessaging::DispatchMessageW(&msg);
-                        Ok(())
-                    }
+            match (result, msg.message) {
+                (-1, _) => Err(windows::core::Error::from_win32().into()),
+                (0, _) | (_, WindowsAndMessaging::WM_APP) => Ok(()),
+                _ => {
+                    WindowsAndMessaging::TranslateMessage(&msg);
+                    WindowsAndMessaging::DispatchMessageW(&msg);
+                    Ok(())
                 },
             }
         }
@@ -349,16 +348,14 @@ impl WebView {
         Ok(())
     }
 
-    pub fn terminate(self) -> Result<()> {
+    pub fn terminate(self) {
         self.dispatch(|_webview| unsafe {
             WindowsAndMessaging::PostQuitMessage(0);
-        })?;
+        });
 
         if self.frame.is_some() {
             WebView::set_window_webview(self.get_window(), None);
         }
-
-        Ok(())
     }
 
     pub fn init(&self, js: &str) -> Result<&Self> {
@@ -428,7 +425,7 @@ impl WebView {
         unsafe { WindowsAndMessaging::ShowWindow(hwnd, WindowsAndMessaging::SW_SHOW) };
     }
 
-    pub fn dispatch<F>(&self, f: F) -> Result<&Self>
+    pub fn dispatch<F>(&self, f: F) -> &Self
     where
         F: FnOnce(WebView) + Send + 'static,
     {
@@ -442,7 +439,7 @@ impl WebView {
                 LPARAM::default(),
             );
         }
-        Ok(self)
+        self
     }
 
     pub fn bind<F>(&self, name: &str, f: F) -> Result<&Self>
@@ -454,11 +451,11 @@ impl WebView {
             .insert(String::from(name), Box::new(f));
 
         let js = String::from(
-            r#"
+            r"
             (function() {
-                var name = '"#,
+                var name = '",
         ) + name
-            + r#"';
+            + r"';
                 var RPC = window._rpc = (window._rpc || {nextSeq: 1});
                 window[name] = function() {
                     var seq = RPC.nextSeq++;
@@ -475,12 +472,12 @@ impl WebView {
                     });
                     return promise;
                 }
-            })()"#;
+            })()";
 
         self.init(&js)
     }
 
-    pub fn resolve(&self, id: u64, status: i32, result: Value) -> Result<&Self> {
+    pub fn resolve(&self, id: u64, status: i32, result: &Value) -> &Self {
         let result = result.to_string();
 
         self.dispatch(move |webview| {
@@ -518,25 +515,21 @@ impl WebView {
         unsafe {
             let data = GetWindowLong(hwnd, WindowsAndMessaging::GWLP_USERDATA);
 
-            match data {
-                0 => None,
-                _ => {
-                    let webview_ptr = data as *mut WebView;
-                    let raw = Box::from_raw(webview_ptr);
-                    let webview = raw.clone();
-                    mem::forget(raw);
-
-                    Some(webview)
-                }
+            if data == 0 { None } else {
+                let webview_ptr = data as *mut WebView;
+                let raw = Box::from_raw(webview_ptr);
+                let webview = raw.clone();
+                mem::forget(raw);
+                
+                Some(webview)
             }
         }
     }
 }
 
 extern "system" fn window_proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-    let webview = match WebView::get_window_webview(hwnd) {
-        Some(webview) => webview,
-        None => return unsafe { WindowsAndMessaging::DefWindowProcW(hwnd, msg, w_param, l_param) },
+    let Some(webview) = WebView::get_window_webview(hwnd) else {
+        return unsafe { WindowsAndMessaging::DefWindowProcW(hwnd, msg, w_param, l_param) }
     };
 
     let frame = webview
@@ -582,7 +575,7 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: L
         }
 
         WindowsAndMessaging::WM_DESTROY => {   
-            webview.terminate().expect("window is gone");
+            webview.terminate();
             LRESULT::default()
         }
 
@@ -592,7 +585,7 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: L
 
 fn get_window_size(hwnd: HWND) -> SIZE {
     let mut client_rect = RECT::default();
-    let _ = unsafe { WindowsAndMessaging::GetClientRect(hwnd, std::mem::transmute(&mut client_rect)) };
+    let _ = unsafe { WindowsAndMessaging::GetClientRect(hwnd, std::ptr::addr_of_mut!(client_rect)) };
     SIZE {
         cx: client_rect.right - client_rect.left,
         cy: client_rect.bottom - client_rect.top,
