@@ -2,13 +2,13 @@
 <html>
     <body>
         <img id="image"></img>
-        <video id="video" autoplay preload>
+        <video id="video" loop autoplay preload>
         </video>
     </body>
 </html>
 
-<script>
-window.onload = () => {
+<script>window.onload = () => {
+
 document.getElementById('video').addEventListener('loadeddata', () => {
     document.getElementById('video').style.display = 'block';
     document.getElementById('image').style.display = 'none';
@@ -18,8 +18,8 @@ document.getElementById('image').onload = () => {
     document.getElementById('video').style.display = 'none';
     document.getElementById('image').style.display = 'block';
 };
-};
-</script>
+
+};</script>
 
 <style>
     html, body {

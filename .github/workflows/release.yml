@@ -1,0 +1,35 @@
+name: build
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build
+
+    timeout-minutes: 5
+
+    permissions:
+      contents: write
+
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2024-01-05
+          
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "wte-build-cache"
+          key: "wte"
+
+      - name: build release binary
+        run: cargo build --release
+
+      - name: publish artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/release/walltaker-engine.exe

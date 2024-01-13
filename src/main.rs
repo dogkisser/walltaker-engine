@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::fs::File;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -30,9 +31,20 @@ mod walltaker;
 type Writer = Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
+#[serde(default)]
 struct Config {
     links: Vec<usize>,
-    log: bool,
+    fit_mode: FitMode,
+    notifications: bool,
+    debug_logs: bool,
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+enum FitMode {
+    Stretch,
+    #[default]
+    Fit,
+    Fill,
 }
 
 const SETTINGS_HTML: &str = include_str!("../res/settings.html");
@@ -63,10 +75,18 @@ async fn main() -> Result<()> {
         .config_dir()
         .join("walltaker-engine/walltaker-engine.json");
 
-    let config: Config = serde_json::from_reader(File::open(&config_path)?)?;
+    let config: Config = if let Ok(file) = File::open(&config_path) {
+        serde_json::from_reader(file)?
+    } else {
+        // Default configuration
+        let mut cfg = Config::default();
+        cfg.notifications = true;
+        cfg.debug_logs = true;
+        cfg
+    };
     let config: Rc<Mutex<Config>> = Mutex::new(config).into();
 
-    if config.lock().unwrap().log {
+    if config.lock().unwrap().debug_logs {
         CombinedLogger::init(vec![
             TermLogger::new(LevelFilter::Debug, simplelog::Config::default(),
                 TerminalMode::Mixed, ColorChoice::Auto),
@@ -103,10 +123,10 @@ async fn main() -> Result<()> {
     let (write, mut read) = ws_stream.split();
     let write = Arc::new(tokio::sync::Mutex::new(write));
 
-    let webview = webview::WebView::create(Some(hwnd), false)?;
+    let webview = webview::WebView::create(Some(hwnd), false, (0, 0))?;
     webview.navigate_html(BACKGROUND_HTML)?;
 
-    let settings = webview::WebView::create(None, true)?;
+    let settings = webview::WebView::create(None, true, (420, 420))?;
     let _config = std::rc::Rc::clone(&config);
     let _write = Arc::clone(&write);
     settings.bind("saveSettings", move |request| {
@@ -140,10 +160,11 @@ async fn main() -> Result<()> {
             webview2_com::Error::CallbackError(String::from("Called wrong. wtf?"))))
     })?;
     let _config = std::rc::Rc::clone(&config);
-    settings.bind("loadSettings", move |request| {
+    settings.bind("loadSettings", move |_request| {
         let cfg = &*_config;
         Ok(serde_json::to_value(cfg)?)
     })?;
+    settings.resize(420, 420)?;
     settings.navigate_html(SETTINGS_HTML)?;
     settings.show();
 
@@ -157,10 +178,6 @@ async fn main() -> Result<()> {
             match serde_json::from_str(&msg).context(msg)? {
                 Incoming::Ping { .. } => { },
 
-                Incoming::ConfirmSubscription { identifier } => {
-                    info!("Successfully subscribed to {identifier}");
-                },
-
                 Incoming::Welcome => {
                     info!("Connected to Walltaker");
 
@@ -169,16 +186,21 @@ async fn main() -> Result<()> {
                     }
 
                     if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
-                        info!("Checking link {link} for initial wallpaper");
                         // Not the best but it works and whatnot
                         tokio::time::sleep(Duration::from_millis(1000)).await;
+                        info!("Checking link {link} for initial wallpaper");
                         walltaker::check(&write, *link).await?;
                     }
                 },
+
+                Incoming::ConfirmSubscription { identifier } => {
+                    info!("Successfully subscribed to {identifier}");
+                },
+
                 // Wallpaper change
                 Incoming::Message { message, .. } => {
                     if let Some(url) = message.post_url {
-                        info!("Wallpaper changed to {url}");
+                        info!("Changing wallpaper to {url}");
                         let url_path = PathBuf::from(&url);
                         let ext = url_path.extension().unwrap().to_string_lossy().to_lowercase();
                         current_url = Some(url_path);

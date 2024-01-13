@@ -8,19 +8,15 @@ use std::{
 };
 
 use serde::Deserialize;
-use serde_json::{Number, Value};
+use serde_json::Value;
 use webview2_com::{*, Microsoft::Web::WebView2::Win32::*};
 use windows::{
     core::*,
     Win32::{
         Foundation::{E_POINTER, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
         Graphics::Gdi,
-        System::{Com::*, LibraryLoader, Threading, WinRT::EventRegistrationToken},
-        UI::{
-            HiDpi,
-            Input::KeyboardAndMouse,
-            WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW},
-        },
+        System::{LibraryLoader, Threading, WinRT::EventRegistrationToken},
+        UI::WindowsAndMessaging::{self, MSG, WINDOW_LONG_PTR_INDEX, WNDCLASSW, MINMAXINFO, MoveWindow, SetWindowPos, SWP_NOZORDER, SWP_NOMOVE},
     },
 };
 
@@ -113,8 +109,8 @@ impl FrameWindow {
                     WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
                     WindowsAndMessaging::CW_USEDEFAULT,
                     WindowsAndMessaging::CW_USEDEFAULT,
-                    300,
-                    300,
+                    WindowsAndMessaging::CW_USEDEFAULT,
+                    WindowsAndMessaging::CW_USEDEFAULT,
                     None,
                     None,
                     LibraryLoader::GetModuleHandleW(None).unwrap_or_default(),
@@ -144,6 +140,8 @@ pub struct WebView {
     tx: WebViewSender,
     rx: Arc<WebViewReceiver>,
     thread_id: u32,
+    min_w: i32,
+    min_h: i32,
     html: Arc<Mutex<String>>,
     bindings: Arc<Mutex<BindingsMap>>,
     frame: Option<FrameWindow>,
@@ -164,7 +162,7 @@ struct InvokeMessage {
 }
 
 impl WebView {
-    pub fn create(parent: Option<HWND>, debug: bool) -> Result<WebView> {
+    pub fn create(parent: Option<HWND>, debug: bool, min_size: (i32, i32)) -> Result<WebView> {
         let (parent, frame) = match parent {
             Some(hwnd) => (hwnd, None),
             None => {
@@ -251,6 +249,8 @@ impl WebView {
             tx,
             rx,
             thread_id,
+            min_w: min_size.0,
+            min_h: min_size.1,
             html: Mutex::new(String::new()).into(),
             bindings: Arc::new(Mutex::new(HashMap::new())),
             frame,
@@ -304,13 +304,10 @@ impl WebView {
     }
 
     pub fn handle_messages(&self) -> Result<()> {
-        let webview = self.webview.as_ref();
-
         if let Some(frame) = self.frame.as_ref() {
             let hwnd = *frame.window;
             unsafe {
                 Gdi::UpdateWindow(hwnd);
-                // KeyboardAndMouse::SetFocus(hwnd);
             }
         }
 
@@ -337,6 +334,14 @@ impl WebView {
                 },
             }
         }
+    }
+
+    pub fn resize(&self, w: i32, h: i32) -> Result<()> {
+        unsafe {
+            SetWindowPos(*self.parent, HWND(-1), -1, -1, w, h, SWP_NOZORDER | SWP_NOMOVE)?;
+        }
+
+        Ok(())
     }
 
     pub fn terminate(self) -> Result<()> {
@@ -553,14 +558,25 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: L
             LRESULT::default()
         }
 
+        WindowsAndMessaging::WM_GETMINMAXINFO => {
+            let mmi = l_param.0 as *mut MINMAXINFO;
+            
+            unsafe {
+                (*mmi).ptMinTrackSize.x = webview.min_w;
+                (*mmi).ptMinTrackSize.y = webview.min_h;
+            }
+            LRESULT::default()
+        },
+
         WindowsAndMessaging::WM_CLOSE => {
             unsafe {
-                let _ = WindowsAndMessaging::DestroyWindow(hwnd);
+                // intelligent design™️
+                let _ = WindowsAndMessaging::ShowWindow(hwnd, WindowsAndMessaging::SW_HIDE);
             }
             LRESULT::default()
         }
 
-        WindowsAndMessaging::WM_DESTROY => {
+        WindowsAndMessaging::WM_DESTROY => {   
             webview.terminate().expect("window is gone");
             LRESULT::default()
         }

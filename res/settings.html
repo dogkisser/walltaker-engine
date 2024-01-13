@@ -4,85 +4,130 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Walltaker Engine Settings</title>
-
-    <link rel="stylesheet" href="https://unpkg.com/98.css">
 </head>
 <body>
-    <div style="width: 270px;">
-        <div class="field-row" style="width: 200px">
-            <label for="new-link"></label>
-            <input id="new-link" placeholder="4870" type="text" />
-            <button id="add-link">Add</button>
-            <button id="remove-link">Remove</button>
+    <div id="settings">
+        <div class="setting">
+            <p>Link(s)</p>
+            <input id="links" placeholder="4870 13779" type="text" />
         </div>
 
-        <div class="sunken-panel" style="margin-top: 5px; height: 120px; width: 100%;">
-            <table class="interactive" style="width: 100%;">
-                <tbody id="links" >
-                </tbody>
-            </table>
+        <div class="setting">
+            <p>Fit Mode</p>
+            <span>
+                <input class="fit-mode" type="radio" id="fit-mode-fit" name="fit-mode" value="fit" />
+                <label for="fit-mode-fit">Fit</label>
+        
+                <input class="fit-mode" type="radio" id="fit-mode-stretch" name="fit-mode" value="stretch" />
+                <label for="fit-mode-stretch">Stretch</label>
+        
+                <input class="fit-mode" type="radio" id="fit-mode-fill" name="fit-mode" value="fill" />
+                <label for="fit-mode-fill">Fill</label>
+            </span>
+        </div>
+
+        <div class="setting">
+            <p>Notifications</p>
+            <input id="notifications" type="checkbox">
+        </div>
+
+        <div class="setting">
+            <p>Save Debug Logs</p>
+            <span>
+                <input id="save-debug-logs" type="checkbox">
+                <button>Open</button>
+            </span>
         </div>
     </div>
     
     <style>
-        html {
-            background-color: #c0c0c0;
+        body {
+            background-color: #202020;
+            color: white;
+            user-select: none;
+            font-family: sans-serif;
+        }
+        
+        #settings {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            padding: 1rem;
+        }
+
+        .setting {
+            background-color: #1a1a1a;
+            padding: 5px 15px;
+            margin: 7px;
+            border-radius: 5px;
+            display: flex;
+            flex: 1;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .setting span {
+            align-items: center;
         }
     </style>
 
     <script>
-const addLink = (to, value) => {
-    const new_tr = document.createElement('tr');
-    const new_td = document.createElement('td');
-    const new_text = document.createTextNode(value);
-
-    new_tr.appendChild(new_td);
-    new_td.appendChild(new_text);
-    to.appendChild(new_tr);
-};
-
 window.onload = async () => {
-const add_link = document.getElementById('add-link');
-const new_link = document.getElementById('new-link');
-const remove_link = document.getElementById('remove-link');
-const links_table_body = document.getElementById('links');
+const links = document.getElementById('links');
+const fit_modes = document.getElementsByClassName('fit-mode');
+const notifications = document.getElementById('notifications');
+const debug_logs = document.getElementById('save-debug-logs');
 
 let settings = await window.loadSettings();
+links.value = settings.links.join(' ');
+notifications.checked = settings.notifications;
+debug_logs.checked = settings.debug_logs;
 
-settings.links.forEach(link => addLink(links_table_body, link));
+switch (settings.fit_mode) {
+    case 'Fit': {
+        document.getElementById('fit-mode-fit').checked = true;
+        break;
+    }
+    case 'Stretch': {
+        document.getElementById('fit-mode-stretch').checked = true;
+        break;
+    }
+    case 'Fill': {
+        document.getElementById('fit-mode-fill').checked = true;
+        break;
+    }
+}
 
-document.querySelectorAll('table.interactive').forEach(element => {
-    element.addEventListener('click', (event) => {
-        const row = event.composedPath().find(element => element.tagName === 'TR' && element.parentElement.tagName === 'TBODY');
-        if (row) {
-            const rows = Array.from(element.parentElement.querySelectorAll('tbody tr'));
-            rows.forEach(r => r.classList.remove('highlighted'));
-
-            row.classList.add('highlighted');
+links.addEventListener('focusout', async event => {
+    links.value.split(' ').forEach(link => {
+        const linkNum = Number(link);
+        if (!isNaN(linkNum) && linkNum != 0 && settings.links.indexOf(linkNum) === -1) {
+            settings.links.push(linkNum);
         }
+    });
+
+    links.value = settings.links.join(' ');
+    await window.saveSettings(settings);
+});
+
+Array.from(fit_modes).forEach(fit_mode => {
+    fit_mode.addEventListener('click', async event => {
+        const name = fit_mode.value.charAt(0).toUpperCase() + fit_mode.value.slice(1);
+        settings.fit_mode = name;
+        await window.saveSettings(settings);
     });
 });
 
-add_link.addEventListener('click', (event) => {
-    const link = Number(new_link.value);
-    if (!isNaN(link) && link != 0 && !settings.links.includes(link)) {
-        addLink(links_table_body, link);
-        new_link.value = '';
-        settings.links.push(link);
-    }
-
-    saveSettings(settings);
+notifications.addEventListener('click', async event => {
+    const enabled = notifications.checked;
+    settings.notifications = enabled;
+    await window.saveSettings(settings);
 });
 
-remove_link.addEventListener('click', (event) => {
-    const selected = links_table_body.querySelector('.highlighted');
-    if (selected) {
-        selected.remove();
-        const link = Number(selected.textContent);
-        settings.links = settings.links.filter((e) => e !== link);
-    }
-
-    saveSettings(settings);
+debug_logs.addEventListener('click', async event => {
+    const enabled = debug_logs.checked;
+    settings.debug_logs = enabled;
+    await window.saveSettings(settings);
 });
 
 };
