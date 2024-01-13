@@ -177,7 +177,7 @@ impl WebView {
             }
         };
 
-        let environment: ICoreWebView2Environment10 = {
+        let environment = {
             let (tx, rx) = mpsc::channel();
 
             CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
@@ -208,7 +208,7 @@ impl WebView {
 
             rx.recv()
                 .map_err(|_| Error::WebView2(webview2_com::Error::SendError))?
-        }?.cast()?;
+        }?;
 
         let controller = {
             let (tx, rx) = mpsc::channel();
