@@ -119,7 +119,7 @@ async fn _main() -> Result<()> {
 
     let mut bg_webviews = Vec::new();
     for hwnd in hwnds {
-        let webview = webview::WebView::create(Some(hwnd), true, (100, 100))?;
+        let webview = webview::WebView::create(Some(hwnd), (100, 100))?;
         webview.navigate_html(BACKGROUND_HTML)?;
         set_bg_colour(&webview, &config.lock().await.background_colour)?;
         set_fit(&config.lock().await.fit_mode, &webview)?;

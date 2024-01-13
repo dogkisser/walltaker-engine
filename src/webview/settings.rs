@@ -22,7 +22,7 @@ pub fn create_settings_webview(
     let config_ = Rc::clone(config);
     let ui_tx_ = ui_tx.clone();
     
-    let settings = WebView::create(None, false, (420, 440))?;
+    let settings = WebView::create(None, (420, 440))?;
     settings.bind("saveSettings", move |request| {
         if let Some(new_cfg) = request.first() {
             let new_settings: crate::Config = serde_json::from_value(new_cfg.clone())?;

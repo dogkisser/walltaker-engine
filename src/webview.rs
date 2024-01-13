@@ -187,7 +187,7 @@ struct InvokeMessage {
 }
 
 impl WebView {
-    pub fn create(parent: Option<HWND>, debug: bool, min_size: (i32, i32)) -> Result<WebView> {
+    pub fn create(parent: Option<HWND>, min_size: (i32, i32)) -> Result<WebView> {
         #[allow(clippy::single_match_else)]
         let (parent, frame) = match parent {
             Some(hwnd) => (hwnd, None),
@@ -266,14 +266,13 @@ impl WebView {
 
         let webview = unsafe { controller.CoreWebView2()? };
 
-        if !debug {
-            unsafe {
-                let settings = webview.Settings()?;
-                settings.SetIsStatusBarEnabled(false)?;
-                settings.SetIsZoomControlEnabled(false)?;
-                settings.SetAreDefaultContextMenusEnabled(false)?;
-                settings.SetAreDevToolsEnabled(false)?;
-            }
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            let settings = webview.Settings()?;
+            settings.SetIsStatusBarEnabled(false)?;
+            settings.SetIsZoomControlEnabled(false)?;
+            settings.SetAreDefaultContextMenusEnabled(false)?;
+            settings.SetAreDevToolsEnabled(false)?;
         }
 
         if let Some(frame) = frame.as_ref() {
