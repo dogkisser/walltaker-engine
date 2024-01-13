@@ -42,12 +42,17 @@
             let links = document.getElementById('links');
             let fit_modes = document.getElementsByClassName('fit-mode');
             let notifications = document.getElementById('notifications');
+            let colour_picker = document.getElementById('background-colour');
+            let run_on_boot = document.getElementById('run-on-boot');
             let debug_logs = document.getElementById('save-debug-logs');
 
             let settings = await window.loadSettings();
             links.value = settings.links.join(' ');
             notifications.checked = settings.notifications;
+            colour_picker.value = settings.background_colour;
+            run_on_boot.value = settings.run_on_boot;
             debug_logs.checked = settings.debug_logs;
+
 
             switch (settings.fit_mode) {
                 case 'Fit': {
@@ -82,6 +87,16 @@
             notifications.addEventListener('click', async (event) => {
                 let enabled = notifications.checked;
                 settings.notifications = enabled;
+                await window.saveSettings(settings);
+            });
+
+            colour_picker.addEventListener('change', async (event) => {
+                settings.background_colour = colour_picker.value;
+                await window.saveSettings(settings);
+            });
+
+            run_on_boot.addEventListener('click', async (event) => {
+                settings.run_on_boot = event.target.checked;
                 await window.saveSettings(settings);
             });
 
@@ -120,6 +135,16 @@
             <input id="notifications" type="checkbox">
         </div>
 
+        <div class="setting">
+            <p>Background Colour</p>
+            <input id="background-colour" type="color">
+        </div>
+        
+        <div class="setting">
+            <p>Run on Boot</p>
+            <input id="run-on-boot" type="checkbox">
+        </div>
+        
         <div class="setting">
             <p>Save Debug Logs</p>
             <span>

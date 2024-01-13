@@ -23,6 +23,7 @@ use rand::prelude::*;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
 use windows::core::{PCWSTR, HSTRING};
+use winrt_notification::Toast;
 
 mod hwnd;
 mod webview;
@@ -36,6 +37,8 @@ struct Config {
     links: Vec<usize>,
     fit_mode: FitMode,
     notifications: bool,
+    background_colour: String,
+    run_on_boot: bool,
     debug_logs: bool,
 }
 
@@ -57,8 +60,11 @@ enum TrayMessage {
     OpenCurrent,
 }
 
+// TODO: Maybe just make all of this just one "Update" message
 enum UiMessage {
     UpdateFit,
+    UpdateRunOnBoot,
+    UpdateBackgroundColour,
     SubscribeTo(usize),
 }
 
@@ -75,6 +81,11 @@ macro_rules! tray_items {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let instance = single_instance::SingleInstance::new("walltaker-engine")?;
+    if !instance.is_single() {
+        return Ok(());
+    }
+
     let config_path = directories::BaseDirs::new()
         .unwrap()
         .config_dir()
@@ -87,6 +98,7 @@ async fn main() -> Result<()> {
         let mut cfg = Config::default();
         cfg.notifications = true;
         cfg.debug_logs = true;
+        cfg.background_colour = String::from("#000000");
         cfg
     };
     let config: Rc<Mutex<Config>> = Mutex::new(config).into();
@@ -130,6 +142,7 @@ async fn main() -> Result<()> {
     for hwnd in hwnds {
         let webview = Rc::new(webview::WebView::create(Some(hwnd), true, (100, 100))?);
         webview.navigate_html(BACKGROUND_HTML)?;
+        set_bg_colour(&webview, &config.lock().unwrap().background_colour)?;
         set_fit(&config.lock().unwrap().fit_mode, &webview)?;
         
         bg_webviews.push(webview);
@@ -152,13 +165,16 @@ async fn main() -> Result<()> {
             // ever contain like, 5 elements tops. So it doesn't really matter.
             let added = new_settings.links.iter()
                 .filter(|i| !config.links.contains(i));
-            let removed = config.links.iter()
+            let _removed = config.links.iter()
                 .filter(|i| !new_settings.links.contains(i));
             // TODO: support live unsubscribing
 
             for link in added {
                 let _ = _ui_tx.send(UiMessage::SubscribeTo(*link));
             }
+
+            let _ = _ui_tx.send(UiMessage::UpdateBackgroundColour);
+            let _ = _ui_tx.send(UiMessage::UpdateRunOnBoot);
 
             log::info!("Settings updated {new_settings:#?}");
 
@@ -184,6 +200,10 @@ async fn main() -> Result<()> {
         if let Ok(message) = ui_rx.try_recv() {
             match message {
                 UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
+                UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().unwrap().run_on_boot)?,
+                UiMessage::UpdateBackgroundColour => for view in &bg_webviews {
+                    set_bg_colour(&view, &config.lock().unwrap().background_colour)?;
+                },
                 UiMessage::UpdateFit => for view in &bg_webviews {
                     set_fit(&config.lock().unwrap().fit_mode, &view)?;
                 },
@@ -236,6 +256,16 @@ async fn main() -> Result<()> {
                             view.eval(&format!("
                                 document.getElementById('{element}').src = '{url}';
                             "))?;
+                        }
+
+                        if config.lock().unwrap().notifications {
+                            let set_by = message.set_by
+                                .unwrap_or_else(|| String::from("Anonymous"));
+
+                            let text = format!("{} changed your wallpaper via link {}! ❤️",
+                                set_by, message.id);
+
+                            notification(&text);
                         }
                     }
                 }
@@ -293,7 +323,13 @@ fn set_fit(mode: &FitMode, to: &Rc<webview::WebView>) -> webview::Result<()> {
     Ok(())
 }
 
-pub fn open(url: &str) {
+fn set_bg_colour(view: &Rc<webview::WebView>, color: &str) -> anyhow::Result<()> {
+    view.eval(&format!("document.body.style.backgroundColor = '{}';", color))?;
+    
+    Ok(())
+}
+
+fn open(url: &str) {
     unsafe {
         ShellExecuteW(
             HWND(0),
@@ -304,4 +340,27 @@ pub fn open(url: &str) {
             SW_SHOW,
         )
     };
+}
+
+fn notification(text: &str) {
+    _ = Toast::new(Toast::POWERSHELL_APP_ID)
+        .title("Walltaker Engine")
+        .text1(text)
+        .show();
+}
+
+fn run_on_boot(should: bool) -> anyhow::Result<()> {
+    let me = std::env::current_exe()?;
+    let out = directories::BaseDirs::new()
+        .unwrap()
+        .data_dir()
+        .join("Microsoft/Windows/Start Menu/Programs/Startup/walltaker-engine.exe");
+
+    if should {
+        std::fs::copy(me, out)?;
+    } else {
+        _ = std::fs::remove_file(out);
+    }
+
+    Ok(())
 }
