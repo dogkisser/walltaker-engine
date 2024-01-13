@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![warn(clippy::pedantic)]
+#![allow(clippy::too_many_lines)]
 use std::fs::File;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -12,18 +14,18 @@ use log::info;
 use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::HiDpi;
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+use windows::core::{PCWSTR, HSTRING};
+use windows::Win32::{
+    UI::{WindowsAndMessaging::SW_SHOW, Shell::ShellExecuteW, HiDpi},
+    Foundation::HWND,
+    System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED},
+};
 use tray_item::{IconSource, TrayItem};
 use simplelog::{
     CombinedLogger, LevelFilter, ColorChoice, TermLogger,
     WriteLogger, TerminalMode
 };
 use rand::prelude::*;
-use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
-use windows::core::{PCWSTR, HSTRING};
 use winrt_notification::Toast;
 
 mod hwnd;
@@ -41,6 +43,7 @@ struct Config {
     background_colour: String,
     run_on_boot: bool,
     debug_logs: bool,
+    version: String,
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
@@ -89,16 +92,18 @@ async fn _main() -> Result<()> {
         .config_dir()
         .join("walltaker-engine/walltaker-engine.json");
 
-    let config: Config = if let Ok(file) = File::open(&config_path) {
+    let mut config: Config = if let Ok(file) = File::open(&config_path) {
         serde_json::from_reader(file)?
     } else {
         // Default configuration
-        let mut cfg = Config::default();
-        cfg.notifications = true;
-        cfg.debug_logs = true;
-        cfg.background_colour = String::from("#202640");
-        cfg
+        Config {
+            notifications: true,
+            debug_logs: true,
+            background_colour: String::from("#202640"),
+            ..Default::default()
+        }
     };
+    config.version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let config: Rc<Mutex<Config>> = Mutex::new(config).into();
 
     if config.lock().unwrap().debug_logs {
@@ -144,7 +149,6 @@ async fn _main() -> Result<()> {
     }
 
     let (settings, ui_rx) = webview::webviews::settings::create_settings_webview(&config)?;
-    settings.show();
 
     let (ws_stream, _) = tokio_tungstenite::connect_async("wss://walltaker.joi.how/cable").await?;
     let (mut write, mut read) = ws_stream.split();
@@ -159,10 +163,10 @@ async fn _main() -> Result<()> {
                 UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
                 UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().unwrap().run_on_boot)?,
                 UiMessage::UpdateBackgroundColour => for view in &bg_webviews {
-                    set_bg_colour(&view, &config.lock().unwrap().background_colour)?;
+                    set_bg_colour(view, &config.lock().unwrap().background_colour)?;
                 },
                 UiMessage::UpdateFit => for view in &bg_webviews {
-                    set_fit(&config.lock().unwrap().fit_mode, &view)?;
+                    set_fit(&config.lock().unwrap().fit_mode, view)?;
                 },
             }
         }
@@ -276,10 +280,10 @@ async fn read_walltaker_message(
                     let set_by = message.set_by
                         .unwrap_or_else(|| String::from("Anonymous"));
 
-                    let text = format!("{} changed your wallpaper via link {}! ❤️",
+                    let notif = format!("{} changed your wallpaper via link {}! ❤️",
                         set_by, message.id);
 
-                    notification(&text);
+                    notification(&notif);
                 }
 
                 return Ok(Some(url_path));
@@ -301,7 +305,7 @@ fn set_fit(mode: &FitMode, to: &webview::WebView) -> webview::Result<()> {
 }
 
 fn set_bg_colour(view: &webview::WebView, color: &str) -> anyhow::Result<()> {
-    view.eval(&format!("document.body.style.backgroundColor = '{}';", color))?;
+    view.eval(&format!("document.body.style.backgroundColor = '{color}';"))?;
     
     Ok(())
 }

@@ -233,6 +233,8 @@ impl WebView {
         if !debug {
             unsafe {
                 let settings = webview.Settings()?;
+                settings.SetIsStatusBarEnabled(false)?;
+                settings.SetIsZoomControlEnabled(false)?;
                 settings.SetAreDefaultContextMenusEnabled(false)?;
                 settings.SetAreDevToolsEnabled(false)?;
             }

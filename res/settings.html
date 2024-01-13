@@ -17,7 +17,7 @@
             display: flex;
             flex: 1;
             flex-direction: column;
-            padding: 1rem;
+            padding: 1rem 1rem 0 1rem;
         }
 
         .setting {
@@ -33,6 +33,20 @@
 
         .setting span {
             align-items: center;
+        }
+
+        footer {
+            font-size: .7rem;
+            text-align: center;
+        }
+
+        #version-string {
+            color: rgb(64, 108, 230);
+        }
+
+        a {
+            text-decoration: none;
+            color: rgb(189, 192, 39);
         }
     </style>
 
@@ -53,6 +67,7 @@
             run_on_boot.value = settings.run_on_boot;
             debug_logs.checked = settings.debug_logs;
 
+            document.getElementById('version-string').innerText = settings.version;
 
             switch (settings.fit_mode) {
                 case 'Fit': {
@@ -113,7 +128,7 @@
     <div id="settings">
         <div class="setting">
             <p>Link(s)</p>
-            <input id="links" placeholder="4870 13779" type="text">
+            <input title="you can put multiple links here!" id="links" placeholder="4870 13779" type="text">
         </div>
 
         <div class="setting">
@@ -149,6 +164,15 @@
             <p>Save Debug Logs</p>
             <input id="save-debug-logs" type="checkbox">
         </div>
+
     </div>
+
+    <footer>
+        <p>
+            <a href="https://github.com/zoomasochist/walltaker-engine">Walltaker Engine</a>
+            <span id="version-string"></span>
+            by <a href="https://twitter.com/zoomasochist">Zoomasochist</a>
+        </p>
+    </footer>
 </body>
 </html>
