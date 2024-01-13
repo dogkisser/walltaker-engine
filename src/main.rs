@@ -13,6 +13,7 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
 use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::HiDpi;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use tray_item::{IconSource, TrayItem};
 use simplelog::{
@@ -116,6 +117,7 @@ async fn _main() -> Result<()> {
 
     unsafe {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED)?;
+        HiDpi::SetProcessDpiAwareness(HiDpi::PROCESS_PER_MONITOR_DPI_AWARE)?;
     }
     let hwnds = unsafe { hwnd::find_hwnds() }?;
 
