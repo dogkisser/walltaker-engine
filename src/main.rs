@@ -80,7 +80,13 @@ macro_rules! tray_items {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(e) = _main().await {
+        log::error!("Crash: {e:#?}");
+    }
+}
+
+async fn _main() -> Result<()> {
     let instance = single_instance::SingleInstance::new("walltaker-engine")?;
     if !instance.is_single() {
         return Ok(());
