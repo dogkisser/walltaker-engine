@@ -177,12 +177,25 @@ impl WebView {
             }
         };
 
-        let environment = {
+        let environment: ICoreWebView2Environment10 = {
             let (tx, rx) = mpsc::channel();
 
             CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
                 Box::new(|environmentcreatedhandler| unsafe {
-                    CreateCoreWebView2Environment(&environmentcreatedhandler)
+                    let data_folder = directories::BaseDirs::new()
+                        .unwrap()
+                        .cache_dir()
+                        .join("walltaker-engine");
+                    let data_folder = HSTRING::from(data_folder.as_os_str());
+        
+                    let options: ICoreWebView2EnvironmentOptions =
+                        CoreWebView2EnvironmentOptions::default().into();
+
+                    CreateCoreWebView2EnvironmentWithOptions(
+                            PCWSTR::null(),
+                            &data_folder,
+                            &options,
+                            &environmentcreatedhandler)
                         .map_err(webview2_com::Error::WindowsError)
                 }),
                 Box::new(move |error_code, environment| {
@@ -195,7 +208,7 @@ impl WebView {
 
             rx.recv()
                 .map_err(|_| Error::WebView2(webview2_com::Error::SendError))?
-        }?;
+        }?.cast()?;
 
         let controller = {
             let (tx, rx) = mpsc::channel();
