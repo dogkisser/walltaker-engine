@@ -28,7 +28,7 @@ mod hwnd;
 mod webview;
 mod walltaker;
 
-type Writer = Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>;
+type Writer = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -59,6 +59,7 @@ enum TrayMessage {
 
 enum UiMessage {
     UpdateFit,
+    SubscribeTo(usize),
 }
 
 macro_rules! tray_items {
@@ -108,7 +109,6 @@ async fn main() -> Result<()> {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED)?;
     }
     let hwnds = unsafe { hwnd::find_hwnds() }?;
-    let hwnd = hwnds[0];
 
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     let mut tray = TrayItem::new("Walltaker Engine",
@@ -124,20 +124,22 @@ async fn main() -> Result<()> {
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(
         "wss://walltaker.joi.how/cable").await?;
-    let (write, mut read) = ws_stream.split();
-    let write = Arc::new(tokio::sync::Mutex::new(write));
+    let (mut write, mut read) = ws_stream.split();
 
-    let webview = Rc::new(webview::WebView::create(None, true, (100, 100))?);
-    webview.show();
+    let mut bg_webviews = Vec::new();
+    for hwnd in hwnds {
+        let webview = Rc::new(webview::WebView::create(Some(hwnd), true, (100, 100))?);
+        webview.navigate_html(BACKGROUND_HTML)?;
+        set_fit(&config.lock().unwrap().fit_mode, &webview)?;
+        
+        bg_webviews.push(webview);
+    }
+
     let _config = Rc::clone(&config);
-    webview.navigate_html(BACKGROUND_HTML)?;
-    set_fit(&config.lock().unwrap().fit_mode, &webview)?;
 
     let (ui_tx, ui_rx) = std::sync::mpsc::sync_channel(1);
     let settings = webview::WebView::create(None, true, (420, 420))?;
     let _config = Rc::clone(&config);
-    let _write = Arc::clone(&write);
-    let _bg_wv = Rc::clone(&webview);
     let _ui_tx = ui_tx.clone();
     settings.bind("saveSettings", move |request| {
         if let Some(new_cfg) = request.get(0) {
@@ -155,11 +157,7 @@ async fn main() -> Result<()> {
             // TODO: support live unsubscribing
 
             for link in added {
-                let link = *link;
-                let _write = Arc::clone(&_write);
-                tokio::spawn(async move {
-                    let _ = walltaker::subscribe_to(&_write, link).await;
-                });
+                _ui_tx.send(UiMessage::SubscribeTo(*link));
             }
 
             log::info!("Settings updated {new_settings:#?}");
@@ -185,7 +183,10 @@ async fn main() -> Result<()> {
         /* Read UI message */
         if let Ok(message) = ui_rx.try_recv() {
             match message {
-                UiMessage::UpdateFit => set_fit(&config.lock().unwrap().fit_mode, &_bg_wv)?,
+                UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
+                UiMessage::UpdateFit => for view in &bg_webviews {
+                    set_fit(&config.lock().unwrap().fit_mode, &view)?;
+                },
             }
         }
         
@@ -201,14 +202,14 @@ async fn main() -> Result<()> {
                     info!("Connected to Walltaker");
 
                     for link in &config.lock().unwrap().links {
-                        walltaker::subscribe_to(&write, *link).await?;
+                        walltaker::subscribe_to(&mut write, *link).await?;
                     }
 
                     if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
                         // Not the best but it works and whatnot
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                         info!("Checking link {link} for initial wallpaper");
-                        walltaker::check(&write, *link).await?;
+                        walltaker::check(&mut write, *link).await?;
                     }
                 },
 
@@ -224,13 +225,16 @@ async fn main() -> Result<()> {
                         let ext = url_path.extension().unwrap().to_string_lossy().to_lowercase();
                         current_url = Some(url_path);
 
-                        if ext == "webm" {
-                            webview.eval(&format!("
-                                document.getElementById('video').src = '{url}';
-                            "))?;
-                        } else {
-                            webview.eval(&format!("
-                                document.getElementById('image').src = '{url}';
+                        let element = 
+                            if ext == "webm" {
+                                "video"
+                            } else {
+                                "image"
+                            };
+
+                        for view in &bg_webviews {
+                            view.eval(&format!("
+                                document.getElementById('{element}').src = '{url}';
                             "))?;
                         }
                     }
@@ -250,7 +254,7 @@ async fn main() -> Result<()> {
     
                 TrayMessage::Refresh => {
                     if let Some(link) = config.lock().unwrap().links.choose(&mut rand::thread_rng()) {
-                        walltaker::check(&write, *link).await?;
+                        walltaker::check(&mut write, *link).await?;
                     }
                 },
                 
@@ -272,8 +276,10 @@ async fn main() -> Result<()> {
             }
         }
 
-        webview.handle_messages()?;
         settings.handle_messages()?;
+        for view in &bg_webviews {
+            view.handle_messages()?;
+        }
     }
 }
 

@@ -97,7 +97,7 @@ fn announce_message(id: usize) -> anyhow::Result<String> {
     Ok(serde_json::to_string(&msg)?)
 }
 
-pub async fn subscribe_to(writer: &crate::Writer, id: usize) -> anyhow::Result<()> {
+pub async fn subscribe_to(writer: &mut crate::Writer, id: usize) -> anyhow::Result<()> {
     let msg = subscribe_message(id)?;
     send(writer, &msg).await?;
 
@@ -107,15 +107,15 @@ pub async fn subscribe_to(writer: &crate::Writer, id: usize) -> anyhow::Result<(
     Ok(())
 }
 
-pub async fn check(writer: &crate::Writer, id: usize) -> anyhow::Result<()> {
+pub async fn check(writer: &mut crate::Writer, id: usize) -> anyhow::Result<()> {
     let msg = check_message(id)?;
     send(writer, &msg).await?;
 
     Ok(())
 }
 
-async fn send(to: &crate::Writer, msg: &str) -> anyhow::Result<()> {
-    to.lock().await.send(tungstenite::Message::text(msg)).await?;
+async fn send(to: &mut crate::Writer, msg: &str) -> anyhow::Result<()> {
+    to.send(tungstenite::Message::text(msg)).await?;
 
     Ok(())
 }
