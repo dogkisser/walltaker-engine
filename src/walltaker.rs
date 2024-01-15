@@ -65,7 +65,9 @@ fn subscribe_message(id: usize) -> anyhow::Result<String> {
     let inner = serde_json::to_string(&inner)?;
 
     let msg = Outgoing::Subscribe { identifier: inner };
-    Ok(serde_json::to_string(&msg)?)
+    let r = serde_json::to_string(&msg)?;
+    log::debug!("Out: {r}");
+    Ok(r)
 }
 
 fn check_message(id: usize) -> anyhow::Result<String> {
@@ -81,7 +83,9 @@ fn check_message(id: usize) -> anyhow::Result<String> {
         command: String::from("message")
     };
 
-    Ok(serde_json::to_string(&msg)?)
+    let r = serde_json::to_string(&msg)?;
+    log::debug!("Out: {r}");
+    Ok(r)
 }
 
 fn announce_message(id: usize) -> anyhow::Result<String> {
@@ -95,7 +99,9 @@ fn announce_message(id: usize) -> anyhow::Result<String> {
         data: serde_json::to_string(&data)?,
     };
 
-    Ok(serde_json::to_string(&msg)?)
+    let r = serde_json::to_string(&msg)?;
+    log::debug!("Out: {r}");
+    Ok(r)
 }
 
 pub async fn subscribe_to(writer: &mut crate::Writer, id: usize) -> anyhow::Result<()> {

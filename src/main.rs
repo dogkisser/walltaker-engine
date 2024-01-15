@@ -18,9 +18,9 @@ use std::{
     task::Poll::Ready,
     io::Write,
 };
-use windows::core::{PCWSTR, HSTRING};
+use windows::{core::{PCWSTR, HSTRING}, Win32::UI::WindowsAndMessaging::MB_OK};
 use windows::Win32::{
-    UI::{WindowsAndMessaging::SW_SHOW, Shell::ShellExecuteW, HiDpi},
+    UI::{WindowsAndMessaging, Shell::ShellExecuteW, HiDpi},
     Foundation::HWND,
     System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED},
 };
@@ -62,8 +62,10 @@ enum TrayMessage {
     OpenCurrent,
 }
 
-const WALLTAKER_WS_URL: &str = "wss://walltaker.joi.how/cable";
 const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
+const WALLTAKER_WS_URL: &str = match option_env!("WALLTAKER_ENGINE_WS_URL") {
+    Some(x) => x, None => "wss://walltaker.joi.how/cable",
+};
 
 macro_rules! tray_items {
     ($tx:ident, $tray:ident, $($text:literal, $variant:expr;)+) => {
@@ -73,6 +75,18 @@ macro_rules! tray_items {
                 tx.send($variant).unwrap();
             })?;
         )*
+    };
+}
+
+macro_rules! popup {
+    ($style:expr, $($t:expr),*) => {
+        unsafe {
+            WindowsAndMessaging::MessageBoxW(
+                HWND(0),
+                &HSTRING::from(format!($($t)*)),
+                windows::core::w!("Walltaker Engine Error"),
+                $style);
+            }
     };
 }
 
@@ -90,6 +104,7 @@ async fn main() {
 
     if let Err(e) = _main().await {
         log::error!("Crash: {e:#?}");
+        popup!(MB_OK, "Unfortunately, Walltaker Engine has crashed.\n{e}");
     }
 }
 
@@ -232,9 +247,18 @@ async fn read_walltaker_message(
     use walltaker::Incoming;
 
     let msg = message.to_string();
+    log::debug!("Recv: {msg}");
     match serde_json::from_str(&msg).context(msg)? {
         Incoming::Ping { .. } => { },
-        Incoming::Disconnect { .. } => { },
+        Incoming::Disconnect { reason, reconnect } => {
+            if !reconnect {
+                popup!(MB_OK, "Walltaker told Walltaker Engine to disconnect: {reason}");
+                std::process::exit(0);
+            }
+
+            log::warn!("Server issued disconect: {reason}");
+
+        },
 
         Incoming::Welcome => {
             info!("Connected to Walltaker");
@@ -333,7 +357,7 @@ fn open(url: &str) {
             &HSTRING::from(url),
             PCWSTR::null(),
             PCWSTR::null(),
-            SW_SHOW,
+            WindowsAndMessaging::SW_SHOW,
         )
     };
 }
