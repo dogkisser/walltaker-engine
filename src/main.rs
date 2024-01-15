@@ -62,6 +62,7 @@ enum TrayMessage {
     OpenCurrent,
 }
 
+const WALLTAKER_WS_URL: &str = "wss://walltaker.joi.how/cable";
 const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
 
 macro_rules! tray_items {
@@ -129,7 +130,7 @@ async fn _main() -> Result<()> {
 
     let (settings, ui_rx) = webview::webviews::settings::create_settings_webview(&config)?;
 
-    let (ws_stream, _) = tokio_tungstenite::connect_async("wss://walltaker.joi.how/cable").await?;
+    let (ws_stream, _) = tokio_tungstenite::connect_async(WALLTAKER_WS_URL).await?;
     let (mut write, mut read) = ws_stream.split();
     let mut current_url = None;
     loop {
@@ -233,6 +234,7 @@ async fn read_walltaker_message(
     let msg = message.to_string();
     match serde_json::from_str(&msg).context(msg)? {
         Incoming::Ping { .. } => { },
+        Incoming::Disconnect { .. } => { },
 
         Incoming::Welcome => {
             info!("Connected to Walltaker");

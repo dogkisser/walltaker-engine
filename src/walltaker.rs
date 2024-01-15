@@ -9,7 +9,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum Incoming {
     Welcome,
     Ping { message: u64, },
-    ConfirmSubscription { identifier: String },
+    ConfirmSubscription { identifier: String, },
+    Disconnect { reason: String, reconnect: bool, },
     #[serde(untagged)]
     Message {
         identifier: String,
