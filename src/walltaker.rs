@@ -1,6 +1,7 @@
 use futures_util::SinkExt;
 use serde::{Serialize, Deserialize};
 use tokio_tungstenite::tungstenite;
+use anyhow::Result;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -30,6 +31,8 @@ pub struct WallpaperUpdate {
 pub enum Outgoing {
     #[serde(rename = "subscribe")]
     Subscribe { identifier: String, },
+    #[serde(rename = "unsubscribe")]
+    Unsubscribe { identifier: String, },
     #[serde(rename = "message")]
     Announce {
         data: String,
@@ -60,7 +63,7 @@ pub struct Identifier {
     pub id: usize,
 }
 
-fn subscribe_message(id: usize) -> anyhow::Result<String> {
+fn subscribe_message(id: usize) -> Result<String> {
     let inner = Identifier { channel: String::from("LinkChannel"), id };
     let inner = serde_json::to_string(&inner)?;
 
@@ -70,7 +73,7 @@ fn subscribe_message(id: usize) -> anyhow::Result<String> {
     Ok(r)
 }
 
-fn check_message(id: usize) -> anyhow::Result<String> {
+fn check_message(id: usize) -> Result<String> {
     let inner = Identifier { channel: String::from("LinkChannel"), id };
     let inner = serde_json::to_string(&inner)?;
 
@@ -88,7 +91,7 @@ fn check_message(id: usize) -> anyhow::Result<String> {
     Ok(r)
 }
 
-fn announce_message(id: usize) -> anyhow::Result<String> {
+fn announce_message(id: usize) -> Result<String> {
     let inner = Identifier { channel: String::from("LinkChannel"), id };
     let data = AnnounceData {
         client: format!("WalltakerEngine-chewtoy/{VERSION}"),
@@ -104,7 +107,17 @@ fn announce_message(id: usize) -> anyhow::Result<String> {
     Ok(r)
 }
 
-pub async fn subscribe_to(writer: &mut crate::Writer, id: usize) -> anyhow::Result<()> {
+fn unsubscribe_message(id: usize) -> Result<String> {
+    let inner = Identifier { channel: String::from("LinkChannel"), id };
+    let inner = serde_json::to_string(&inner)?;
+
+    let msg = Outgoing::Unsubscribe { identifier: inner };
+    let r = serde_json::to_string(&msg)?;
+    log::debug!("Out: {r}");
+    Ok(r)
+}
+
+pub async fn subscribe_to(writer: &mut crate::Writer, id: usize) -> Result<()> {
     let msg = subscribe_message(id)?;
     send(writer, &msg).await?;
 
@@ -114,14 +127,21 @@ pub async fn subscribe_to(writer: &mut crate::Writer, id: usize) -> anyhow::Resu
     Ok(())
 }
 
-pub async fn check(writer: &mut crate::Writer, id: usize) -> anyhow::Result<()> {
+pub async fn unsubscribe_from(writer: &mut crate::Writer, id: usize) -> Result<()> {
+    let msg = unsubscribe_message(id)?;
+    send(writer, &msg).await?;
+
+    Ok(())
+}
+
+pub async fn check(writer: &mut crate::Writer, id: usize) -> Result<()> {
     let msg = check_message(id)?;
     send(writer, &msg).await?;
 
     Ok(())
 }
 
-async fn send(to: &mut crate::Writer, msg: &str) -> anyhow::Result<()> {
+async fn send(to: &mut crate::Writer, msg: &str) -> Result<()> {
     to.send(tungstenite::Message::text(msg)).await?;
 
     Ok(())

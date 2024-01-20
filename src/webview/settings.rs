@@ -12,6 +12,7 @@ pub enum UiMessage {
     UpdateRunOnBoot,
     UpdateBackgroundColour,
     SubscribeTo(usize),
+    UnsubscribeFrom(usize),
 }
 
 pub fn create_settings_webview(
@@ -34,12 +35,15 @@ pub fn create_settings_webview(
             // ever contain like, 5 elements tops. So it doesn't really matter.
             let added = new_settings.links.iter()
                 .filter(|i| !config.links.contains(i));
-            let _removed = config.links.iter()
+            let removed = config.links.iter()
                 .filter(|i| !new_settings.links.contains(i));
-            // TODO: support live unsubscribing
 
             for link in added {
                 _ = ui_tx_.send(UiMessage::SubscribeTo(*link));
+            }
+
+            for link in removed {
+                _ = ui_tx_.send(UiMessage::UnsubscribeFrom(*link));
             }
 
             _ = ui_tx_.send(UiMessage::UpdateBackgroundColour);

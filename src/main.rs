@@ -155,6 +155,8 @@ async fn _main() -> Result<()> {
 
             match message {
                 UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
+                UiMessage::UnsubscribeFrom(link) =>
+                    walltaker::unsubscribe_from(&mut write, link).await?,
                 UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().await.run_on_boot)?,
                 UiMessage::UpdateBackgroundColour => for view in &bg_webviews {
                     set_bg_colour(view, &config.lock().await.background_colour)?;
