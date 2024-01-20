@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
 use tray_item::{IconSource, TrayItem};
 use rand::prelude::*;
-use winrt_notification::Toast;
+use tauri_winrt_notification::Toast;
 use std::{
     fs::File,
     rc::Rc,
@@ -144,6 +144,17 @@ async fn _main() -> Result<()> {
     }
 
     let (settings, ui_rx) = webview::webviews::settings::create_settings_webview(&config)?;
+
+    // We do a little hacking
+    if config.lock().await.links.is_empty() {
+        let tx = tx.clone();
+
+        _ = Toast::new(Toast::POWERSHELL_APP_ID)
+            .title("Walltaker Engine")
+            .text1("Walltaker Engine is now running! Open me from the tray to set your link(s).")
+            .on_activated(move || { _ = tx.send(TrayMessage::Settings); Ok(()) })
+            .show();
+    }
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(WALLTAKER_WS_URL).await?;
     let (mut write, mut read) = ws_stream.split();
@@ -308,7 +319,10 @@ async fn read_walltaker_message(
                     let notif = format!("{} changed your wallpaper via link {}! ❤️",
                         set_by, message.id);
 
-                    notification(&notif);
+                    _ = Toast::new(Toast::POWERSHELL_APP_ID)
+                        .title("Walltaker Engine")
+                        .text1(&notif)
+                        .show();
                 }
 
                 return Ok(Some(url_path));
@@ -362,13 +376,6 @@ fn open(url: &str) {
             WindowsAndMessaging::SW_SHOW,
         )
     };
-}
-
-fn notification(text: &str) {
-    _ = Toast::new(Toast::POWERSHELL_APP_ID)
-        .title("Walltaker Engine")
-        .text1(text)
-        .show();
 }
 
 fn run_on_boot(should: bool) -> Result<()> {
