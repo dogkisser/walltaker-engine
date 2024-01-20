@@ -161,7 +161,7 @@ type BindingsMap = HashMap<String, BindingCallback>;
 #[derive(Clone)]
 pub struct WebView {
     controller: Rc<WebViewController>,
-    webview: Rc<ICoreWebView2>,
+    webview: Rc<ICoreWebView2_8>,
     tx: WebViewSender,
     rx: Rc<WebViewReceiver>,
     thread_id: u32,
@@ -187,7 +187,7 @@ struct InvokeMessage {
 }
 
 impl WebView {
-    pub fn create(parent: Option<HWND>, min_size: (i32, i32)) -> Result<WebView> {
+    pub fn create(parent: Option<HWND>, play_audio: bool, min_size: (i32, i32)) -> Result<WebView> {
         #[allow(clippy::single_match_else)]
         let (parent, frame) = match parent {
             Some(hwnd) => (hwnd, None),
@@ -264,7 +264,8 @@ impl WebView {
             controller.SetIsVisible(true)?;
         }
 
-        let webview = unsafe { controller.CoreWebView2()? };
+        let webview = unsafe { controller.CoreWebView2()? }.cast::<ICoreWebView2_8>()?;
+        unsafe { webview.SetIsMuted(!play_audio)?; };
 
         #[cfg(not(debug_assertions))]
         unsafe {
