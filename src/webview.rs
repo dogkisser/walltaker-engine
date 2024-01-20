@@ -15,7 +15,7 @@ use windows::Win32::{
     System::LibraryLoader::GetModuleHandleA,
     UI::WindowsAndMessaging::{
         IMAGE_ICON, LR_SHARED, WM_SETICON, ICON_SMALL, PM_REMOVE,
-        LoadImageA, SendMessageA,
+        LoadImageA, SendMessageA, SetForegroundWindow,
     },
 };
 #[allow(clippy::wildcard_imports)]
@@ -454,7 +454,10 @@ impl WebView {
 
     pub fn show(&self) {
         let hwnd = *self.parent;
-        unsafe { WindowsAndMessaging::ShowWindow(hwnd, WindowsAndMessaging::SW_SHOW) };
+        unsafe {
+            WindowsAndMessaging::ShowWindow(hwnd, WindowsAndMessaging::SW_SHOW);
+            SetForegroundWindow(hwnd);
+        };
     }
 
     pub fn dispatch<F>(&self, f: F) -> &Self
