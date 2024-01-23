@@ -7,7 +7,8 @@ Free <https://walltaker.joi.how/> client with video support.
 ✅ Video support<br>
 ✅ Multi-monitor support<br>
 ✅ Instant changes<br>
-✅ Subscribe to multiple links
+✅ Subscribe to multiple links<br>
+✅ Intiface support
 
 ## Building
 

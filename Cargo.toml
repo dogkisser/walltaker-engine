@@ -1,7 +1,7 @@
 [package]
 name = "walltaker-engine"
 authors = [ "zoomasochist" ]
-version = "0.1.7"
+version = "0.2.9"
 edition = "2021"
 
 [dependencies]
@@ -19,6 +19,21 @@ tokio-tungstenite = { version =  "0.21.0", features = [ "native-tls" ] }
 tray-item = "0.9.0"
 webview2-com = "0.28.0"
 tauri-winrt-notification = "0.1.3"
+
+[dependencies.buttplug]
+version = "7.1.12"
+default-features = false
+features = [
+    "tokio-runtime",
+    "client",
+    "serialize-json",
+    "websockets",
+    "websocket-server-manager",
+    "serial-manager",
+    "btleplug-manager",
+    "lovense-dongle-manager",
+    "xinput-manager",
+]
 
 [dependencies.windows]
 version = "0.52.0"

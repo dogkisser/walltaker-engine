@@ -2,6 +2,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::too_many_lines)]
 use anyhow::{Result, Context};
+use buttplug::{core::connector::new_json_ws_client_connector, client::{ButtplugClient, ScalarValueCommand}};
 use futures_util::{stream::SplitSink, poll, StreamExt};
 use log::info;
 use serde::{Serialize, Deserialize};
@@ -37,6 +38,7 @@ type Writer = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(clippy::struct_excessive_bools)]
 struct Config {
     links: Vec<usize>,
     fit_mode: FitMode,
@@ -44,6 +46,8 @@ struct Config {
     background_colour: String,
     run_on_boot: bool,
     debug_logs: bool,
+    vibrate_for: u16,
+    vibration_intensity: u8,
     version: String,
 }
 
@@ -63,6 +67,7 @@ enum TrayMessage {
 }
 
 const BACKGROUND_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/background.html.min"));
+const BUTTPLUG_URL: &str = "ws://127.0.0.1:12345";
 const WALLTAKER_WS_URL: &str = match option_env!("WALLTAKER_ENGINE_WS_URL") {
     Some(x) => x, None => "wss://walltaker.joi.how/cable",
 };
@@ -158,6 +163,13 @@ async fn _main() -> Result<()> {
             .show();
     }
 
+    let buttplug_connector = new_json_ws_client_connector(BUTTPLUG_URL);
+    let buttplug = ButtplugClient::new("Walltaker Engine");
+
+    if let Err(e) = buttplug.connect(buttplug_connector).await {
+        log::info!("Couldn't connect to Intiface: {}", e);
+    }
+
     let (ws_stream, _) = tokio_tungstenite::connect_async(WALLTAKER_WS_URL).await?;
     let (mut write, mut read) = ws_stream.split();
     let mut current_url = None;
@@ -167,15 +179,17 @@ async fn _main() -> Result<()> {
             use crate::webview::webviews::settings::UiMessage;
 
             match message {
+                UiMessage::TestNotification =>
+                    notification(&*config.lock().await, &buttplug, None, 0).await,
                 UiMessage::SubscribeTo(link) => walltaker::subscribe_to(&mut write, link).await?,
                 UiMessage::UnsubscribeFrom(link) =>
                     walltaker::unsubscribe_from(&mut write, link).await?,
-                UiMessage::UpdateRunOnBoot => run_on_boot(config.lock().await.run_on_boot)?,
-                UiMessage::UpdateBackgroundColour => for view in &bg_webviews {
-                    set_bg_colour(view, &config.lock().await.background_colour)?;
-                },
-                UiMessage::UpdateFit => for view in &bg_webviews {
-                    set_fit(&config.lock().await.fit_mode, view)?;
+                UiMessage::UpdateSettings => {
+                    run_on_boot(config.lock().await.run_on_boot)?;
+                    for view in &bg_webviews {
+                        set_bg_colour(view, &config.lock().await.background_colour)?;
+                        set_fit(&config.lock().await.fit_mode, view)?;
+                    }
                 },
             }
         }
@@ -184,6 +198,7 @@ async fn _main() -> Result<()> {
         if let Ready(Some(message)) = poll!(read.next()) {
             let new_link = read_walltaker_message(
                 &*config.lock().await,
+                &buttplug,
                 &mut write,
                 &bg_webviews,
                 &message?
@@ -254,6 +269,7 @@ fn load_config<P: AsRef<Path>>(from: P) -> Result<Config> {
 
 async fn read_walltaker_message(
     config: &Config,
+    buttplug: &ButtplugClient,
     writer: &mut Writer,
     bg_webviews: &[webview::WebView],
     message: &Message
@@ -314,18 +330,7 @@ async fn read_walltaker_message(
                     "))?;
                 }
 
-                if config.notifications {
-                    let set_by = message.set_by
-                        .unwrap_or_else(|| String::from("Anonymous"));
-
-                    let notif = format!("{} changed your wallpaper via link {}! ❤️",
-                        set_by, message.id);
-
-                    _ = Toast::new(Toast::POWERSHELL_APP_ID)
-                        .title("Walltaker Engine")
-                        .text1(&notif)
-                        .show();
-                }
+                notification(config, buttplug, message.set_by, message.id).await;
 
                 return Ok(Some(url_path));
             }
@@ -333,6 +338,47 @@ async fn read_walltaker_message(
     }
 
     Ok(None)
+}
+
+async fn notification(
+    config: &Config,
+    buttplug: &ButtplugClient,
+    set_by: Option<String>,
+    id: usize
+) {
+    if config.notifications {
+        let set_by = set_by
+            .unwrap_or_else(|| String::from("Anonymous"));
+
+        let notif = format!("{set_by} changed your wallpaper via link {id}! ❤️");
+
+        _ = Toast::new(Toast::POWERSHELL_APP_ID)
+            .title("Walltaker Engine")
+            .text1(&notif)
+            .show();
+    }
+
+    if config.vibrate_for != 0 {
+        vibrate(config, buttplug).await;
+    }
+}
+
+async fn vibrate(config: &Config, buttplug: &ButtplugClient) {
+    let intensity = f64::from(config.vibration_intensity) / 100.;
+    let length = u64::from(config.vibrate_for);
+    for device in buttplug.devices() {
+        log::info!("Vibing {} for {}/{}",
+            device.name(),
+            intensity, length,
+        );
+        if let Err(e) = device.vibrate(&ScalarValueCommand::ScalarValue(intensity)).await {
+            log::warn!("Couldn't make connected device vibrate: {:?}", e);
+        }
+
+        // is this the best way to do this?
+        tokio::time::sleep(std::time::Duration::from_millis(length)).await;
+        let _ = device.stop().await;
+    }
 }
 
 fn init_logging(write: bool) -> Result<()> {

@@ -6,11 +6,9 @@ use crate::webview::{Error, WebView};
 
 const SETTINGS_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/settings.html.min"));
 
-// TODO: Maybe just make all of this just one "Update" message
 pub enum UiMessage {
-    UpdateFit,
-    UpdateRunOnBoot,
-    UpdateBackgroundColour,
+    TestNotification,
+    UpdateSettings,
     SubscribeTo(usize),
     UnsubscribeFrom(usize),
 }
@@ -28,8 +26,6 @@ pub fn create_settings_webview(
         if let Some(new_cfg) = request.first() {
             let new_settings: crate::Config = serde_json::from_value(new_cfg.clone())?;
             let mut config = tokio::task::block_in_place(|| config_.blocking_lock());
-        
-            _ = ui_tx_.send(UiMessage::UpdateFit);
 
             // This is theoretically really, really slow but these vecs will only
             // ever contain like, 5 elements tops. So it doesn't really matter.
@@ -46,8 +42,7 @@ pub fn create_settings_webview(
                 _ = ui_tx_.send(UiMessage::UnsubscribeFrom(*link));
             }
 
-            _ = ui_tx_.send(UiMessage::UpdateBackgroundColour);
-            _ = ui_tx_.send(UiMessage::UpdateRunOnBoot);
+            _ = ui_tx_.send(UiMessage::UpdateSettings);
 
             log::info!("Settings updated {new_settings:#?}");
 
@@ -57,6 +52,11 @@ pub fn create_settings_webview(
 
         Err(Error::WebView2(
             webview2_com::Error::CallbackError(String::from("Called wrong. wtf?"))))
+    })?;
+    let ui_tx_ = ui_tx.clone();
+    settings.bind("testNotifications", move |_| {
+        _ = ui_tx_.send(UiMessage::TestNotification);
+        Ok(serde_json::Value::String(String::from("ok")))
     })?;
 
     let config_ = Rc::clone(config);

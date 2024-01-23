@@ -20,6 +20,14 @@
             padding: 1rem 1rem 0 1rem;
         }
 
+        h1 {
+            font-size: 1.1rem;
+            color: lightgray;
+            text-align: center;
+            padding: .5rem 0 .5rem 0;
+            margin: 0;
+        }
+
         .setting {
             background-color: #1a1a1a;
             padding: .1rem 1rem;
@@ -29,6 +37,18 @@
             flex: 1;
             justify-content: space-between;
             align-items: center;
+        }
+
+        #test-notifications {
+            background-color: #1a1a1a;
+            color: white;
+            border: 0;
+            padding: .3rem .7rem;
+            box-shadow: 3px 2px 2px #2c2c2c;
+        }
+
+        #test-notifications:active {
+            box-shadow: 1px 1px 1px #2c2c2c;
         }
 
         .setting span {
@@ -48,6 +68,15 @@
             text-decoration: none;
             color: rgb(189, 192, 39);
         }
+
+        datalist {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        option {
+            padding: 0;
+        }
     </style>
 
     <script>
@@ -58,6 +87,8 @@
             let notifications = document.getElementById('notifications');
             let colour_picker = document.getElementById('background-colour');
             let run_on_boot = document.getElementById('run-on-boot');
+            let vibrate_for = document.getElementById('vibrate-for');
+            let vibration_intensity = document.getElementById('vibration-intensity');
             let debug_logs = document.getElementById('save-debug-logs');
 
             let settings = await window.loadSettings();
@@ -65,6 +96,8 @@
             notifications.checked = settings.notifications;
             colour_picker.value = settings.background_colour;
             run_on_boot.value = settings.run_on_boot;
+            vibrate_for.value = settings.vibrate_for;
+            vibration_intensity.value = settings.vibration_intensity;
             debug_logs.checked = settings.debug_logs;
 
             document.getElementById('version-string').innerText = settings.version;
@@ -115,6 +148,16 @@
                 await window.saveSettings(settings);
             });
 
+            vibrate_for.addEventListener('change', async (event) => {
+                settings.vibrate_for = Number(event.target.value);
+                await window.saveSettings(settings);
+            });
+
+            vibration_intensity.addEventListener('change', async (event) => {
+                settings.vibration_intensity = Number(event.target.value);
+                await window.saveSettings(settings);
+            });
+
             debug_logs.addEventListener('click', async (event) => {
                 let enabled = debug_logs.checked;
                 settings.debug_logs = enabled;
@@ -146,20 +189,48 @@
         </div>
 
         <div class="setting">
-            <p>Notifications</p>
-            <input id="notifications" type="checkbox">
-        </div>
-
-        <div class="setting">
             <p>Background Colour</p>
             <input id="background-colour" type="color">
         </div>
-        
+
         <div class="setting">
             <p>Run on Boot</p>
             <input id="run-on-boot" type="checkbox">
         </div>
+
+        <h1>Notifications <button id="test-notifications" onclick="testNotifications();">Test</button></h1>
+        <div class="setting">
+            <p>Toast<sup title="A system notification">?</sup></p>
+            <input id="notifications" type="checkbox">
+        </div>
         
+        <div class="setting">
+            <p>Vibration Duration<sup title="Vibrate connected Intiface devices">?</sup></p>
+            <div>
+                <input id="vibrate-for" min="0" max="5000" step="250" list="vibrate-step" type="range">
+
+                <datalist id="vibrate-step">
+                    <option value="0"     label="Off"></option>
+                    <option value="2500"  label="2.5s"></option>
+                    <option value="5000"  label="5s"></option>
+                </datalist>
+            </div>
+        </div>
+
+        <div class="setting">
+            <p>Vibration Intensity</p>
+            <div>
+                <input id="vibration-intensity" min="0" max="100" list="vibration-intensity-step" type="range">
+
+                <datalist id="vibration-intensity-step">
+                    <option value="0"     label="0%"></option>
+                    <option value="50"  label="50%"></option>
+                    <option value="100"  label="100%"></option>
+                </datalist>
+            </div>
+        </div>
+
+        <h1>Debugging</h1>
         <div class="setting">
             <p>Save Debug Logs</p>
             <input id="save-debug-logs" type="checkbox">
