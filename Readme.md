@@ -12,8 +12,8 @@ Free <https://walltaker.joi.how/> client with video support.
 
 ## Building
 
-**You don't need to do this.** [Click here](https://github.com/dogkisser/walltaker-engine/releases/latest)
-to download the latest release of Walltaker Engine.
+**You don't need to do this.** [Click here](https://github.com/dogkisser/walltaker-engine/wiki/How%E2%80%90To)
+for a how-to on running Walltaker Engine.
 
 Walltaker Engine only builds on Windows.
 
