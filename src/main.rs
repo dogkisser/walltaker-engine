@@ -317,16 +317,14 @@ async fn read_walltaker_message(
                 let url_path = PathBuf::from(&url);
                 let ext = url_path.extension().unwrap().to_string_lossy().to_lowercase();
 
-                let element = 
-                    if ext == "webm" {
-                        "video"
-                    } else {
-                        "image"
-                    };
-
+                // just awful
+                let element =           if ext == "webm" { "video" } else { "image" };
+                let the_other_element = if ext == "webm" { "image" } else { "video" };
+                
                 for view in bg_webviews {
                     view.eval(&format!("
                         document.getElementById('{element}').src = '{url}';
+                        document.getElementById('{the_other_element}').src = '';
                     "))?;
                 }
 
