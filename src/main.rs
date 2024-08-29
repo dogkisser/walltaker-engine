@@ -279,7 +279,12 @@ async fn read_walltaker_message(
 
     let msg = message.to_string();
     log::debug!("Recv: {msg}");
-    match serde_json::from_str(&msg).context(msg)? {
+
+    let Ok(decm) = serde_json::from_str(&msg) else {
+        log::warn!("message couldn't be decoded (skipping): {msg}");
+        return Ok(None);
+    };
+    match decm {
         Incoming::Ping { .. } => { },
         Incoming::Disconnect { reason, reconnect } => {
             if !reconnect {
