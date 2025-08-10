@@ -1,6 +1,6 @@
 [package]
 name = "walltaker-engine"
-authors = [ "zoomasochist" ]
+authors = [ "dogkisser" ]
 version = "0.2.9"
 edition = "2021"
 
